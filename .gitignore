@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Secrets et données sensibles
+.env
+data/raw/
+*.xlsx
