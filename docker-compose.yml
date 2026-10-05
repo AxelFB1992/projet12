@@ -37,5 +37,77 @@ services:
       retries: 10
     mem_limit: 512m
 
+  # ---------------------------------------------------------------------------
+  # Redpanda : broker de messages compatible Kafka (1 nœud, mode dev, bridé)
+  # ---------------------------------------------------------------------------
+  redpanda:
+    image: redpandadata/redpanda:v24.3.1
+    container_name: p12-redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      # internal = adresse pour les conteneurs ; external = adresse pour ta machine
+      - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      - --rpc-addr=redpanda:33145
+      - --advertise-rpc-addr=redpanda:33145
+      # dev-container : réglages de développement (création auto des topics...)
+      - --mode=dev-container
+      - --smp=1
+      - --memory=768M
+      - --reserve-memory=0M
+      - --default-log-level=warn
+    ports:
+      - "127.0.0.1:19092:19092"   # accès Kafka depuis ta machine (scripts Python lancés hors Docker)
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    mem_limit: 1g
+
+  # ---------------------------------------------------------------------------
+  # Redpanda Console : interface web (topics, messages, retard des consommateurs)
+  # ---------------------------------------------------------------------------
+  redpanda-console:
+    image: redpandadata/console:v2.8.0
+    container_name: p12-redpanda-console
+    restart: unless-stopped
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "127.0.0.1:8085:8080"     # http://localhost:8085
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    mem_limit: 256m
+
+  # ---------------------------------------------------------------------------
+  # Debezium Server : lit le journal Postgres (CDC) et publie dans Redpanda
+  # ---------------------------------------------------------------------------
+  debezium:
+    image: quay.io/debezium/server:3.0.0.Final
+    container_name: p12-debezium
+    restart: unless-stopped
+    environment:
+      # Secret injecté par variable d'environnement (Quarkus la mappe sur
+      # la propriété debezium.source.database.password)
+      DEBEZIUM_SOURCE_DATABASE_PASSWORD: ${DEBEZIUM_PASSWORD}
+      JAVA_TOOL_OPTIONS: -Xmx384m
+    volumes:
+      - ./docker/debezium/application.properties:/debezium/config/application.properties:ro
+      - debezium_data:/debezium/data   # position de lecture (offsets)
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    mem_limit: 640m
+
 volumes:
   pgdata:
+  redpanda_data:
+  debezium_data:
