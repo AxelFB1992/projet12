@@ -7,7 +7,7 @@ plausibles. Modifier ce fichier suffit à ajuster la simulation.
 
 from dataclasses import dataclass
 
-
+#Décorateur qui permet d'éviter d'écrire le constructeur (avec tous les paramètres), les fonctions toString() et equals()
 @dataclass(frozen=True)
 class ProfilActivite:
     """Caractéristiques d'un type d'activité."""
@@ -45,6 +45,8 @@ ESCALADE = ProfilActivite("Escalade", duree_min=(60, 180))
 
 # ---------- Sport déclaré (fichier RH) -> activités possibles avec leur poids ----------
 # Les libellés sont ceux du fichier, y compris la faute "Runing".
+#C'est un dictionnaire de profil avec, pour chaque profil, le nom des profil et la liste d'activité associée
+#Pour chaque activité de la liste, on a un couple (ProfilActivité, poids) avec profil d'activité étant la classe décrité ci-dessus et le poids une probabilité que cette activité ait lieue
 PROFILS_PAR_SPORT: dict[str, list[tuple[ProfilActivite, float]]] = {
     "Runing": [(COURSE, 0.9), (RANDONNEE, 0.1)],
     "Randonnée": [(RANDONNEE, 0.85), (MARCHE, 0.15)],
