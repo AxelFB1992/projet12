@@ -1,0 +1,40 @@
+version: 2
+
+models:
+  - name: avantages_salaries
+    description: Éligibilité et coût des deux avantages, par salarié (sans données nominatives)
+    columns:
+      - name: id_salarie
+        data_tests: [unique, not_null]
+      - name: statut_declaration
+        description: Contrôle de la déclaration de trajet sportif par la distance réelle
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['non concerné', 'non vérifiée', 'conforme', 'suspecte']
+      - name: montant_prime
+        data_tests: [not_null]
+      - name: cout_bien_etre
+        data_tests: [not_null]
+
+  - name: activites
+    description: Activités sportives enrichies (BU, tranche d'âge, sport déclaré)
+    columns:
+      - name: id_activite
+        data_tests: [unique, not_null]
+      - name: id_salarie
+        description: Doit exister dans le fichier RH
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_salaries')
+                field: id_salarie
+              config:
+                severity: warn
+
+  - name: kpi_synthese
+    description: Indicateurs clés du POC (une ligne) et paramètres utilisés
+
+  - name: historique_kpi
+    description: Une ligne par exécution de dbt, pour suivre l'effet des changements de paramètres

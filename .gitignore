@@ -223,3 +223,7 @@ __marimo__/
 .env
 data/raw/
 *.xlsx
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml

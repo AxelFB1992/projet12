@@ -1,0 +1,31 @@
+version: 2
+
+seeds:
+  - name: parametres
+    description: >
+      Paramètres métier par défaut des avantages sportifs (une seule ligne).
+      Modifiables ici, ou surchargés au lancement : dbt build --vars '{taux_prime: 0.03}'.
+    config:
+      column_types:
+        taux_prime: numeric
+        seuil_marche_km: numeric
+        seuil_velo_km: numeric
+        nb_jours_bien_etre: integer
+        nb_activites_min: integer
+        jours_travailles_an: integer
+        periode_jours: integer
+    columns:
+      - name: taux_prime
+        description: Part du salaire brut annuel versée en prime (0.05 = 5 %)
+      - name: seuil_marche_km
+        description: Distance domicile-bureau maximale pour la marche/course (km)
+      - name: seuil_velo_km
+        description: Distance domicile-bureau maximale pour le vélo/trottinette (km)
+      - name: nb_jours_bien_etre
+        description: Nombre de journées bien-être accordées
+      - name: nb_activites_min
+        description: Nombre minimal d'activités sur la période pour y avoir droit
+      - name: jours_travailles_an
+        description: Jours travaillés par an, pour valoriser une journée
+      - name: periode_jours
+        description: Période (en jours) sur laquelle on compte les activités

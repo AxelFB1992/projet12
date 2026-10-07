@@ -1,0 +1,14 @@
+# Connexion de dbt à l'entrepôt. Aucun secret ici : tout vient des variables
+# d'environnement (fichier .env), lues avec env_var().
+sport_data:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('POSTGRES_HOST', 'localhost') }}"
+      port: "{{ env_var('POSTGRES_PORT', '5432') | int }}"
+      user: etl
+      password: "{{ env_var('ETL_PASSWORD') }}"
+      dbname: dwh
+      schema: staging
+      threads: 4

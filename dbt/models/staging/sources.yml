@@ -1,0 +1,31 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Données brutes, chargées telles quelles par les scripts Python
+    schema: raw
+    tables:
+      - name: salaries
+        description: Fichier RH (ingestion)
+        columns:
+          - name: id_salarie
+            data_tests: [unique, not_null]
+      - name: sports
+        description: Fichier sport déclaré (ingestion)
+        columns:
+          - name: id_salarie
+            data_tests: [unique, not_null]
+      - name: activites
+        description: Activités sportives (Redpanda -> consommateur de chargement)
+        columns:
+          - name: id_activite
+            data_tests: [unique, not_null]
+
+  - name: geo
+    description: Distances domicile-travail (API Google Routes)
+    schema: geo
+    tables:
+      - name: distances_domicile_travail
+        columns:
+          - name: id_salarie
+            data_tests: [unique, not_null]

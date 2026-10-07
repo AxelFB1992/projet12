@@ -1,0 +1,23 @@
+name: sport_data
+version: "1.0.0"
+profile: sport_data
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  sport_data:
+    staging:
+      +schema: staging          # nettoyage : vues, recalculées à chaque lecture
+      +materialized: view
+    marts:
+      +schema: analytics        # restitution : tables lues par Power BI
+      +materialized: table
+
+seeds:
+  sport_data:
+    +schema: analytics          # les paramètres sont visibles dans Power BI
