@@ -16,7 +16,7 @@ def inserer_activites(conn: psycopg.Connection, activites: list[Activite]) -> in
     # On prépare la requête d'écrire avec ce qui va être ajoutés (',') concaténés au colonnes
     requete = f"COPY activites ({', '.join(COLONNES)}) FROM STDIN"
     # On attend d'avoir ajouté les différentes lignes correspondant aux activités dans copy avant d'ecrire le contenu complet du curseur avec commit
-    # Le curseur est généré à partir de l'objet de connection qui contient déjà les paramètre de connection (psycopg.Connection
+    # Le curseur est généré à partir de l'objet de connection qui contient déjà les paramètre de connection (psycopg.Connection)
     with conn.cursor() as cur, cur.copy(requete) as copy:
         for a in activites:
             copy.write_row((
