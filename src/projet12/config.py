@@ -61,3 +61,10 @@ def connexion_dwh() -> psycopg.Connection:
 # Redpanda (accès depuis ta machine par le port externe)
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:19092")
 TOPIC_ACTIVITES = os.getenv("TOPIC_ACTIVITES", "app.public.activites")
+
+# Adresse de l'entreprise (note de cadrage) : destination des trajets domicile-travail
+ADRESSE_ENTREPRISE = os.getenv("ADRESSE_ENTREPRISE", "1362 Av. des Platanes, 34970 Lattes, France")
+
+
+def cle_google() -> str:
+    return _variable_obligatoire("GOOGLE_MAPS_API_KEY")
