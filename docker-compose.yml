@@ -6,6 +6,7 @@ services:
     container_name: p12-postgres
     restart: unless-stopped
     environment:
+      # On re-utilise des variables d'environnement pour éviter que les clés soient écrit en dur dans le docker-compose
       POSTGRES_USER: ${POSTGRES_ADMIN_USER}
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
       POSTGRES_DB: postgres
@@ -15,6 +16,7 @@ services:
       ETL_PASSWORD: ${ETL_PASSWORD}
       POWERBI_PASSWORD: ${POWERBI_PASSWORD}
       KESTRA_DB_PASSWORD: ${KESTRA_DB_PASSWORD}
+    # Les commandes que docker va passer en paramètre à psql après son lancement
     # wal_level=logical : indispensable pour que Debezium lise les changements
     command:
       - postgres

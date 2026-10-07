@@ -11,7 +11,16 @@
 # =============================================================================
 set -euo pipefail
 
-# Le superutilisateur (POSTGRES_USER) n'est utilisé que pour l'administration.
+# ==============Creation des rôles et des accès sur les différentes accès sur les bases de données==============
+
+""" 
+On execute la commande psql qui lance postgres conteneurisé (dans le cadre du docker-compose) via le superutilisateur
+Le superutilisateur (POSTGRES_USER) n'est utilisé que pour l'administration et l'execution de ces commandes
+Les instructions du bloc ci-dessous réalise, dans l'ordre
+	- La création des 5 rôles : app_writer (pour le generateur), debezium, etl (pour DBT), powerbi_reader et kestra.
+	- La création des 3 bases de données : app pour les activites (strava), dwh pour le datawarehouse et kestra pour Kestra.
+	- Les autorisations d'accès (de connexion - pas de lecture ni d'écriture pour l'instant) sur ces 3 bases de données
+"""
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
     -- ---------- Rôles applicatifs ----------
     -- Générateur d'activités : écrit dans la base app
@@ -25,11 +34,12 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
     -- Kestra : sa base interne
     CREATE ROLE kestra       LOGIN PASSWORD '${KESTRA_DB_PASSWORD}';
 
-    -- ---------- Bases ----------
+    -- ---------- Bases de données ----------
     CREATE DATABASE app    OWNER $POSTGRES_USER;
     CREATE DATABASE dwh    OWNER etl;
     CREATE DATABASE kestra OWNER kestra;
 
+	-- ---------- Accès aux bases de données ----------
     -- Personne ne se connecte par défaut à une base qui ne le concerne pas
     REVOKE ALL ON DATABASE app, dwh, kestra FROM PUBLIC;
     GRANT CONNECT ON DATABASE app    TO app_writer, debezium;
@@ -38,6 +48,16 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
 EOSQL
 
 # ---------- Base app : la source simulée (façon Strava) ----------
+""" 
+On execute la commande psql qui lance postgres conteneurisé (dans le cadre du docker-compose) via le superutilisateur
+Le superutilisateur (POSTGRES_USER) n'est utilisé que pour l'administration et l'execution de ces commandes
+Les instructions du bloc ci-dessous réalise, dans l'ordre
+	- La révocation de tous les droits sur le schémas public de la base app
+	- L'autorisation de rentrer dans le schémas (repertoire) 'public' de la base app pour les roles app_writer et debezium
+	- La création de la table public.activites qui permet de stocker les activités générées par strava ou par notre générateur
+	- La gestion des autorisation : lecture pour debezium, lecture ecriture pour app_writer (strava ou notre générateur)
+	- La création de la publication sur la table public.activites qui permet à Debezium de recevoir en continu les modifications
+"""
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname app <<-EOSQL
     REVOKE ALL ON SCHEMA public FROM PUBLIC;
     GRANT USAGE ON SCHEMA public TO app_writer, debezium;
@@ -66,6 +86,16 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname app <<-EOSQL
 EOSQL
 
 # ---------- Base dwh : l'entrepôt analytique ----------
+""" 
+On execute la commande psql qui lance postgres conteneurisé (dans le cadre du docker-compose) via le superutilisateur
+Le superutilisateur (POSTGRES_USER) n'est utilisé que pour l'administration et l'execution de ces commandes
+Les instructions du bloc ci-dessous réalise, dans l'ordre
+	- La révocation de tous les droits sur le schémas public de la base dwh
+	- La création des différents schémas (sans création de tables pour l'instant) de la base dwh dont etl est propriétaire
+	- L'accès aux schémas analytics et monitoring pour powerbi_reader;
+	- La gestion des autorisations sur ces deux schémas : la lecture pour les tables d'analytics et de monitoring à powerbi_reader
+	- La création d'une table de suivi pour les éxecution du pipeline (id, type de traitement, nombre de lignes concernées, etc)
+"""
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname dwh <<-EOSQL
     REVOKE ALL ON SCHEMA public FROM PUBLIC;
 
