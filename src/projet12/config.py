@@ -44,3 +44,20 @@ def connexion_app() -> psycopg.Connection:
         user="app_writer",
         password=_variable_obligatoire("APP_WRITER_PASSWORD"),
     )
+
+
+def connexion_dwh() -> psycopg.Connection:
+    """Connexion à l'entrepôt 'dwh' avec le rôle etl
+    (propriétaire des schémas raw, geo, staging, analytics, monitoring)."""
+    return psycopg.connect(
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        dbname="dwh",
+        user="etl",
+        password=_variable_obligatoire("ETL_PASSWORD"),
+    )
+
+
+# Redpanda (accès depuis ta machine par le port externe)
+KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:19092")
+TOPIC_ACTIVITES = os.getenv("TOPIC_ACTIVITES", "app.public.activites")
