@@ -39,17 +39,19 @@ ON CONFLICT (id_activite) DO UPDATE SET
     charge_le = now()
 """
 
-
+# Retourne une date au bon format
 def _date(texte: str | None) -> datetime | None:
+    """Retourne une date au bon format"""
     return datetime.fromisoformat(texte) if texte else None
 
-
+# Transforme un message RedPanda brut (au format JSON) en un vrai message texte
 def evenement_vers_ligne(valeur: bytes | None) -> tuple | None:
     """Message Redpanda brut -> ligne à insérer, ou None s'il n'y a rien à charger."""
     if valeur is None:            # message vide (tombstone)
         return None
     e = json.loads(valeur)
     ts = e.get("__source_ts_ms")
+    # Ici est formaté le tuple qui sera inséré tel quel dans la base de données
     return (
         e["id_activite"], e.get("id_salarie"), _date(e.get("date_debut")),
         e.get("type_activite"), e.get("distance_m"), _date(e.get("date_fin")),
@@ -57,13 +59,15 @@ def evenement_vers_ligne(valeur: bytes | None) -> tuple | None:
         e.get("__op"), datetime.fromtimestamp(ts / 1000, UTC) if ts else None,
     )
 
-
+# Crée la table si jamais elle n'existe pas : DDL_ACTIVITES est l'instruction de création
 def preparer_table(conn: psycopg.Connection) -> None:
+    """ Crée la table si jamais elle n'existe pas : DDL_ACTIVITES est l'instruction de création
+    """
     with conn.cursor() as cur:
         cur.execute(DDL_ACTIVITES)
     conn.commit()
 
-
+# Permet d'écrire dans la base de données un lot de lignes
 def charger_lot(conn: psycopg.Connection, lignes: list[tuple], debut: datetime) -> None:
     """Upsert d'un lot + trace dans monitoring.pipeline_runs, dans UNE transaction."""
     with conn.cursor() as cur:
