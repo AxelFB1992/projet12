@@ -3,6 +3,22 @@
 Ce module calcule des FAITS (distance, durée). La RÈGLE métier (15 km à pied,
 25 km à vélo) est appliquée plus loin, dans dbt, à partir d'une table de
 paramètres : changer un seuil ne nécessite donc pas de rappeler l'API.
+
+Ce module contient 3 méthodes permettant chacune de réaliser une action différentes :
+    - trajets_a_calculer : permet de retourner les listes des trajets à calculer en fonction des salariés qui ont déclaré un moyen de transport
+        sportif pour venir au travail
+    - calculer : permet de calculer les distances domiciles-travail des trajets de la liste retournées par la méthode précedente. Cette méthode
+        ne fait pas directement appel à l'API google mais délègue cela à la méthode calculer_lot de routes.py
+    - enregistrer : permet d'écrire l'intégralité des résultats obtenus (informations de trajets + résultats du calcul) obtenues par la méthode
+        précedente dans la base de données geo.distances_domicile_travail
+
+Une autre méthode eest là pour préparer la table geo.distances_domicile_travail si elle n'existe pas et retourner l'heure courante.
+
+Ce module est donc l'interface entre la base de données raw.salaries qui stocke les informations sur les salariés dont la distance domicile travail
+et l'API Google qui prend en paramètre les informations qu'on lui donne en dur selon un protocole bien précis (d'où le pré-traitement) d'une part
+et d'autre part, dans l'autre sens, le résultat donné par l'API Google et la base de données geo.distances_domicile_travail dans laquelle
+il faut écrire les resultats obtenus ainsi que les informations du trajet
+
 """
 
 from dataclasses import dataclass
@@ -37,7 +53,7 @@ CREATE TABLE IF NOT EXISTS geo.distances_domicile_travail (
 class Trajet:
     id_salarie: int
     adresse: str
-    mode_api: str # correspond au moyen de déplacement 
+    mode_api: str # correspond au moyen de déplacement : WALK ou BICYCLE
 
 # Retourne une liste de Trajets (salarié, adresse et mode) à (re)calculer ainsi que le nombre de trajets déjà calculés en base (pour sporifs)
 def trajets_a_calculer(conn: psycopg.Connection, forcer: bool = False) -> tuple[list[Trajet], int]:
@@ -83,16 +99,19 @@ def calculer(client: httpx.Client, cle: str, trajets: list[Trajet], destination:
             # On passe la clé API en paramètre ainsi que le client pour pouvoir se connecter à l'API dans 
             # ", France" aide le géocodage des adresses incomplètes (sans code postal...) calculer_lot
             resultats = calculer_lot(client, cle, [f"{t.adresse}, France" for t in lot], destination, mode)
-            # On parcourt les résultats en les parcourant par tuple grâce à la méthode zip qui crée des tuples
+            # On parcourt les résultats en les parcourant par tuple grâce à la méthode zip qui associe chaque trajet(lot) à chaqye distance (résultat)
             for t, r in zip(lot, resultats):
                 # On ajoute à la liste 'lignes' les résultats du calcul avec les informations des trajets et les résultats du calcul
                 lignes.append((t.id_salarie, t.adresse, t.mode_api, r["distance_m"], r["duree_s"], r["statut"]))
     return lignes
 
-# Permet d'enregistrer les distances calculées (sous forme de liste de tuples) dans la base de données 
+# Permet d'enregistrer les distances calculées (sous forme de liste de tuples) dans la base de données dwh
 def enregistrer(conn: psycopg.Connection, lignes: list[tuple], debut: datetime) -> None:
     """Upsert des distances + trace dans monitoring.pipeline_runs (une transaction)."""
+    # Toujours avec un curseur pour executer les instructions 
     with conn.cursor() as cur:
+        # On execute plusieurs insertions dans la base de données correspondant au résultat de la méthode ci-dessus à savoir un groupe 
+        # de lignes avec les informations du trajet plus des informations retournées par l'API google lors du calcul de distance
         cur.executemany(
             """INSERT INTO geo.distances_domicile_travail
                    (id_salarie, adresse, mode_api, distance_m, duree_s, statut)
@@ -101,8 +120,10 @@ def enregistrer(conn: psycopg.Connection, lignes: list[tuple], debut: datetime) 
                    adresse = EXCLUDED.adresse, mode_api = EXCLUDED.mode_api,
                    distance_m = EXCLUDED.distance_m, duree_s = EXCLUDED.duree_s,
                    statut = EXCLUDED.statut, calcule_le = now()""",
+            # Les pourcentages ci-dessus vont être remplacés par les différents champs de chaque élément de la liste
             lignes,
         )
+        # Comme pour les autres écritures sur la base de données dwh, on laisse une trâce de ce que l'on a fait dans monitoring.pipeline_runs
         cur.execute(
             """INSERT INTO monitoring.pipeline_runs (etape, debut, fin, statut, nb_lignes)
                VALUES ('geo_distances', %s, now(), 'succes', %s)""",
@@ -110,12 +131,8 @@ def enregistrer(conn: psycopg.Connection, lignes: list[tuple], debut: datetime) 
         )
     conn.commit()
 
-
+# Une méthode qui permet de creer la table geo.distances_domicile_travail si elle n'existe pas
 def preparer_table(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
         cur.execute(DDL)
     conn.commit()
-
-
-def maintenant() -> datetime:
-    return datetime.now(UTC)
