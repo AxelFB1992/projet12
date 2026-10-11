@@ -3,14 +3,17 @@ name: projet12
 services:
   postgres:
     image: postgres:16-alpine
+    # Nom du conteneur que l'on veut voir apparaitre dans docker ps
     container_name: p12-postgres
     restart: unless-stopped
     environment:
       # On re-utilise des variables d'environnement pour éviter que les clés soient écrit en dur dans le docker-compose
+      # Nom et mot de passe pour le super-utilisateur ainsi que le nom de la base de données principale (postgres)
       POSTGRES_USER: ${POSTGRES_ADMIN_USER}
       POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
       POSTGRES_DB: postgres
-      # Mots de passe des rôles applicatifs, lus par le script d'init
+      # Mots de passe des rôles applicatifs, lus par le script d'initialisation, executé dans le conteneur postgres
+      # En effet, tous les mots de passe qu'il y a ici servent aux rôles postgres, d'où leur présence dans cette section.
       APP_WRITER_PASSWORD: ${APP_WRITER_PASSWORD}
       DEBEZIUM_PASSWORD: ${DEBEZIUM_PASSWORD}
       ETL_PASSWORD: ${ETL_PASSWORD}
@@ -18,25 +21,36 @@ services:
       KESTRA_DB_PASSWORD: ${KESTRA_DB_PASSWORD}
     # Les commandes que docker va passer en paramètre à psql après son lancement
     # wal_level=logical : indispensable pour que Debezium lise les changements
+    # Plutôt que de lancer seulement 'postgres' à l'intérieur du conteneur docker, on va lancer 'postgres' avec des arguments
     command:
       - postgres
       - -c
+      # Journal des transactions : le niveau 'logical' permet d'afficher toutes les modifications logiques (pas que physiques)
       - wal_level=logical
       - -c
+      # Slot de réplication
       - max_replication_slots=4
       - -c
+      # Nombre de connexions de réplication simultanés
       - max_wal_senders=4
     ports:
       # Exposé uniquement en local (pas sur le réseau) — Power BI s'y connecte
+      # Format IP_hôte:port_hôte:port_conteneur -> ${POSTGRES_PORT:-5432} de ma machine local reidrige vers le port 5432 du conteneur 
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
+      # Volume géré par docker, il permet de stocker durablement les fichiers de la base postgres
       - pgdata:/var/lib/postgresql/data
+      # Montage de dossier qui permet d'executer les script de init au premier démarrage --> on le renomme donc en entrypoint
+      # Le montage de dossier permet une correspondance (lien direct) entre un dossier de la machine local et un dossier du conteneur
       - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+      # Commande executé par docker régulièrement pour savoir si le système est réellement "healthy" au sens de la commande ci-dessous
+      # Sans cette commande, les conditions "depends_on: condition: service_healthy" attendraient simplemenet que le service soit lancé
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
+    # Limite de mémoire RAM allooué en service (en général, les réglages internes sont déjà en dessous de ces limites)
     mem_limit: 512m
 
   # ---------------------------------------------------------------------------
@@ -50,25 +64,38 @@ services:
       - redpanda
       - start
       # internal = adresse pour les conteneurs ; external = adresse pour ta machine
+      # C'est à dire que redpanda peut écouter les topics qui transitent à l'exterieur de son conteneur mais seulement sur le port 19092
       - --kafka-addr=internal://0.0.0.0:9092,external://0.0.0.0:19092
+      # Permet de donner aux services clients (client Kakfa) qui voudraient se connecter et écouter les topics une interface d'accès
+      # Par conséquent, les conteneurs du même environnment (projet12) utilisent redpanda:9092 et les services externent localhost:19092
       - --advertise-kafka-addr=internal://redpanda:9092,external://localhost:19092
+      # Communications entre noeuds (brokers) RedPanda : inutile ici car il n'y a qu'un seul noeud
       - --rpc-addr=redpanda:33145
       - --advertise-rpc-addr=redpanda:33145
       # dev-container : réglages de développement (création auto des topics...)
       - --mode=dev-container
+      # Un seul coeur CPU qui gère le service RedPanda
       - --smp=1
+      # La RAM reservé par RedPanda, plus restrictive que la limite fixée ci-dessous
       - --memory=768M
+      # 0 Megaoctet de RAM supplémentaire
       - --reserve-memory=0M
+      # Le niveau des logs n'est pas positionné à Info mais à Warning pour limiter le nombre de logs
       - --default-log-level=warn
     ports:
+    # Format IP_hôte:port_hôte:port_conteneur -> le port 19092 de ma machine local reidrige vers le port 19092 du conteneur
       - "127.0.0.1:19092:19092"   # accès Kafka depuis ta machine (scripts Python lancés hors Docker)
     volumes:
+      # Volume géré par docker permettant la persistance des topics, messages et position de lecture des groupes de consommateurs
       - redpanda_data:/var/lib/redpanda/data
+      # Commande executé par docker régulièrement pour savoir si le système est réellement "healthy" au sens de la commande ci-dessous
+      # Sans cette commande, les conditions "depends_on: condition: service_healthy" attendraient simplemenet que le service soit lancé
     healthcheck:
       test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
+    # Limite de mémoire RAM allooué en service (en général, les réglages internes sont déjà en dessous de ces limites)
     mem_limit: 1g
 
   # ---------------------------------------------------------------------------
@@ -78,18 +105,23 @@ services:
     image: redpandadata/console:v2.8.0
     container_name: p12-redpanda-console
     restart: unless-stopped
+    # redpdanda_console a besoin de redpanda pour exister, par conséquent on le resneigne comme KAFKA_BROKERS dans l'environnement
     environment:
       KAFKA_BROKERS: redpanda:9092
+    # Format IP_hôte:port_hôte:port_conteneur -> le port 8085 de ma machine local reidrige vers le port 8080 du conteneur
     ports:
       - "127.0.0.1:8085:8080"     # http://localhost:8085
+    # Pour que redpanda_console puisse s'executer, il faut que le vrai service redpanda soit lancé, ce qui est normal
     depends_on:
       redpanda:
         condition: service_healthy
+    # Limite de mémoire RAM allooué en service (en général, les réglages internes sont déjà en dessous de ces limites)
     mem_limit: 256m
 
   # ---------------------------------------------------------------------------
   # Debezium Server : lit le journal Postgres (CDC) et publie dans Redpanda
   # ---------------------------------------------------------------------------
+  # Debezium est une application Java et Quarkus est un framework java
   debezium:
     image: quay.io/debezium/server:3.0.0.Final
     container_name: p12-debezium
@@ -98,17 +130,24 @@ services:
       # Secret injecté par variable d'environnement (Quarkus la mappe sur
       # la propriété debezium.source.database.password)
       DEBEZIUM_SOURCE_DATABASE_PASSWORD: ${DEBEZIUM_PASSWORD}
+      # Cet option fixe la mémoire maximale de la JVM
       JAVA_TOOL_OPTIONS: -Xmx384m
     volumes:
+      # Montage de dossier permettant de faire comme si ./docker/debezium/ était /debezium/config/ pour le lancement du conteneur Debezium
       - ./docker/debezium/application.properties:/debezium/config/application.properties:ro
+      # # Volume géré par docker permettant de sauvegarder la position à laquelle il s'est arrêter dans la lecture de la base de données
       - debezium_data:/debezium/data   # position de lecture (offsets)
+    # Pour que debezium se lance, il faut que les deux services avec lesquels ils discutent soient lancé, à savoir redpanda et postgres
     depends_on:
       postgres:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+    # Limite de mémoire RAM allooué en service (en général, les réglages internes sont déjà en dessous de ces limites)
     mem_limit: 640m
 
+# Etant donné que ce ne sont pas des chemins déjà existants (comme les montages de dossier), les volumes docker doivent être crée
+# Par conséquent, on déclare ici les volumes pour qu'ils soient crée avant d'être utilisés dans les services 
 volumes:
   pgdata:
   redpanda_data:
