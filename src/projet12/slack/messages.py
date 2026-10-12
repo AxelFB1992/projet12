@@ -72,7 +72,6 @@ def construire_message(evenement: dict, noms: dict[int, str], rng: random.Random
     """
     Cette méthode utilise, entre autre, les 3 méthodes précedentes (formater_duree, de_sport, formater_distance) pour formatter un message en texte
     Construit le texte Slack d'une activité."""
-    #
     rng = rng or random.Random()
     # On récupère toutes les caractères de l'évenement dans son dictionnaire
     # Son dictionnaire correspond au message JSON que nous avions structurer par balise au niveau du générateur

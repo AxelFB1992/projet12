@@ -7,6 +7,7 @@ plausibles. Modifier ce fichier suffit à ajuster la simulation.
 
 from dataclasses import dataclass
 
+
 #Décorateur qui permet d'éviter d'écrire le constructeur (avec tous les paramètres), les fonctions toString() et equals()
 @dataclass(frozen=True)
 class ProfilActivite:

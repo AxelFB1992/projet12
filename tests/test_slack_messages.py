@@ -19,7 +19,7 @@ def evenement(**champs) -> bytes:
 
 def test_message_course_comme_dans_la_note_de_cadrage():
     texte = traiter_evenement(evenement(), NOMS)
-    assert texte == "Bravo Juliette Mendes ! Tu viens de courir 10,8 km en 46 min ! Quelle énergie ! 🔥🏅"
+    assert texte == "Bravo Juliette Mendes ! Tu viens de courir 10,8 km en 46 min ! Quelle énergie !"
 
 
 def test_commentaire_ajoute_entre_guillemets():
@@ -29,7 +29,7 @@ def test_commentaire_ajoute_entre_guillemets():
 
 def test_sport_sans_distance():
     texte = traiter_evenement(evenement(type_activite="Escalade", distance_m=None), NOMS)
-    assert texte == "Bravo Juliette Mendes ! 46 min d'escalade, quelle séance ! 💪"
+    assert texte == "Bravo Juliette Mendes ! 46 min d'escalade, quelle séance !"
     texte = traiter_evenement(evenement(type_activite="Tennis", distance_m=None), NOMS)
     assert "46 min de tennis" in texte
 

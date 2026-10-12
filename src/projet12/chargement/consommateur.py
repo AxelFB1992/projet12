@@ -10,7 +10,7 @@ import logging
 import signal
 from datetime import UTC, datetime
 
-from confluent_kafka import Consumer
+from confluent_kafka import Consumer, KafkaError
 
 from projet12.chargement.entrepot import (
     charger_lot,
@@ -71,11 +71,17 @@ def consommer(bootstrap: str, topic: str) -> None:
                 # on garde la version la plus récente (la dernière lue)
                 lignes = {}
                 # On traite les messages les uns après les autres
+                nb_lus = 0  
                 for msg in messages:
                     # Si jamais il y a une erreur sur un message, on le signale et on passe au message suivant
                     if msg.error():
-                        log.error("Erreur Kafka : %s", msg.error())
+                        if msg.error().code() == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                            log.warning("Topic %s pas encore créé (aucune activité) : en attente", topic)
+                        else:
+                            log.error("Erreur Kafka : %s", msg.error())
                         continue
+                    nb_lus += 1
+                    
                     # Si le message est bon, il faut le préparer pour le charger dans le datawarehouse
                     # Contrairement à SLack où il était mis en forme pour être affiché, il doit ici être mis en forme pour être stocké
                     # Par conséquent, la méthode entrepot.py/evenement_vers_ligne retourne un tuple (sql ?) prêt à être stocké
@@ -98,7 +104,11 @@ def consommer(bootstrap: str, topic: str) -> None:
                     total += len(lignes)
                     log.info("📥 %d activité(s) chargée(s) (total de la session : %d)", len(lignes), total)
                 # Pour sauvegarder la position du consommateur avant l'arrêt
-                consumer.commit(asynchronous=False)   # après la base, jamais avant
+                # Après la base, jamais avant. Rien à valider si le lot ne contenait
+                # que des erreurs (sinon Kafka répond "No offset stored")
+                if nb_lus:
+                    consumer.commit(asynchronous=False)
+                    
         finally:
             consumer.close()
             log.info("Arrêt : %d activité(s) chargée(s) pendant la session", total)

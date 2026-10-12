@@ -3,10 +3,10 @@
     uv run python -m projet12.geo            # seulement les distances manquantes ou périmées
     uv run python -m projet12.geo --force    # recalcule tout
 """
-
 import argparse
 import logging
 import sys
+from datetime import UTC, datetime
 
 import httpx
 
@@ -14,7 +14,7 @@ from projet12.config import ADRESSE_ENTREPRISE, cle_google, connexion_dwh
 from projet12.geo.distances import (
     calculer,
     enregistrer,
-    maintenant,
+    #maintenant,
     preparer_table,
     trajets_a_calculer,
 )

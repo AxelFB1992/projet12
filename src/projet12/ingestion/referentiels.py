@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 import psycopg
 
+
 # On crée une classe qui va nous permettre de structure les informations pour l'ingestion des fichiers dans la vase de données dwh
 @dataclass(frozen=True)
 class Referentiel:

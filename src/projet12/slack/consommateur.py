@@ -105,7 +105,10 @@ def consommer(bootstrap: str,topic: str,noms: dict[int, str],webhook_url: str | 
                 if msg is None:
                     continue
                 if msg.error():
-                    if msg.error().code() != KafkaError._PARTITION_EOF:
+                    code = msg.error().code()
+                    if code == KafkaError.UNKNOWN_TOPIC_OR_PART:
+                        log.warning("Topic %s pas encore créé (aucune activité) : en attente", topic)
+                    elif code != KafkaError._PARTITION_EOF:
                         log.error("Erreur Kafka : %s", msg.error())
                     continue
                 # ... Et on le transmet à cette fonction qui va le formatter correctement et enregistrer le resultat sous 'texte'

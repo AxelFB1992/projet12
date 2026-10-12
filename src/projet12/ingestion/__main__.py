@@ -8,6 +8,7 @@ import sys
 
 # Les chemins des fichiers des données RH et sportives sont toujours dans le fichier projet12.config
 from projet12.config import FICHIER_RH, FICHIER_SPORT, connexion_dwh
+
 # On récuppère les référentiels écrits dans referentiels.py qui nous donne toutes les informations à récuperer et les structures de tables
 from projet12.ingestion.referentiels import SALARIES, SPORTS, charger
 
