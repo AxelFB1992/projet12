@@ -1,0 +1,99 @@
+# Contrôles des données BRUTES (data source dwh_raw = schéma raw).
+# Deux niveaux : "warn" = à surveiller, "fail" = le pipeline doit s'arrêter.
+
+# ---------------------------------------------------------------------------
+# Activités (source façon Strava : qualité non maîtrisée, on s'attend à
+# quelques erreurs -> avertissement ; échec seulement si elles deviennent nombreuses)
+# ---------------------------------------------------------------------------
+checks for activites:
+  # Volumétrie et fraîcheur : le flux temps réel est-il vivant ?
+  - row_count > 0:
+      name: Des activités ont été chargées
+  - freshness(charge_le):
+      name: Dernier chargement d'activité récent
+      warn: when > 1d
+      fail: when > 7d
+
+  # Intégrité
+  - duplicate_count(id_activite) = 0:
+      name: Pas d'activité en double
+  - missing_count(id_salarie) = 0:
+      name: Chaque activité a un salarié
+  - values in (id_salarie) must exist in salaries (id_salarie):
+      name: Chaque activité concerne un salarié du fichier RH
+
+  # Cohérence des mesures
+  - invalid_percent(distance_m):
+      name: Distance comprise entre 0 et 300 km (% d'activités hors bornes)
+      valid min: 0
+      valid max: 300000
+      warn: when > 0
+      fail: when > 1
+  - dates_incoherentes:
+      name: Fin après le début et durée de moins de 24 h (nb d'activités en erreur)
+      dates_incoherentes query: |
+        select count(*)
+        from raw.activites
+        where date_fin <= date_debut
+           or date_fin - date_debut >= interval '24 hours'
+      warn: when > 0
+      fail: when > 50
+  - vitesses_implausibles:
+      name: Vitesse moyenne plausible pour le sport (nb d'activités en erreur)
+      # Seuils par sport : seed dbt analytics.vitesses_max (dbt/seeds/vitesses_max.csv)
+      vitesses_implausibles query: |
+        select count(*)
+        from raw.activites a
+        join analytics.vitesses_max v using (type_activite)
+        where a.distance_m > 0
+          and a.date_fin > a.date_debut
+          and a.distance_m / 1000.0
+              / (extract(epoch from (a.date_fin - a.date_debut)) / 3600.0) > v.vitesse_max_kmh
+      warn: when > 0
+      fail: when > 50
+  - invalid_count(type_activite):
+      name: Type d'activité connu
+      valid values: [Badminton, Basketball, Boxe, Course à pied, Escalade, Football,
+                     Judo, Marche, Natation, Randonnée, Rugby, Tennis, Tennis de table,
+                     Voile, Vélo, Équitation]
+      warn: when > 0
+
+# ---------------------------------------------------------------------------
+# Référentiel RH (fichier Excel) : une erreur ici fausse les avantages -> échec
+# ---------------------------------------------------------------------------
+checks for salaries:
+  - row_count > 0:
+      name: Le fichier RH n'est pas vide
+  - schema:
+      name: Colonnes attendues du fichier RH
+      fail:
+        when required column missing: [id_salarie, date_embauche, salaire_brut,
+                                       adresse, moyen_deplacement]
+  - duplicate_count(id_salarie) = 0:
+      name: Pas de salarié en double
+  - missing_count(salaire_brut) = 0:
+      name: Salaire renseigné
+  - min(salaire_brut) > 0:
+      name: Salaire positif
+  - missing_count(adresse) = 0:
+      name: Adresse renseignée (nécessaire au calcul de distance)
+  - invalid_count(moyen_deplacement) = 0:
+      name: Moyen de déplacement connu
+      valid values: [Marche/running, Vélo/Trottinette/Autres,
+                     Transports en commun, véhicule thermique/électrique]
+  - invalid_count(type_contrat) = 0:
+      name: Type de contrat connu
+      valid values: [CDI, CDD]
+  - embauches_futures = 0:
+      name: Pas de date d'embauche dans le futur
+      embauches_futures query: |
+        select count(*) from raw.salaries where date_embauche > current_date
+
+# ---------------------------------------------------------------------------
+# Sports déclarés
+# ---------------------------------------------------------------------------
+checks for sports:
+  - row_count same as salaries:
+      name: Une ligne par salarié du fichier RH
+  - duplicate_count(id_salarie) = 0:
+      name: Pas de salarié en double

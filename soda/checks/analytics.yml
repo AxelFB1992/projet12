@@ -1,0 +1,35 @@
+# Contrôles des données RESTITUÉES à Power BI (data source dwh_analytics).
+# Complémentaires des tests dbt : ici on surveille le résultat final, avec
+# des seuils d'alerte et un historique des contrôles (monitoring.qualite_checks).
+
+checks for avantages_salaries:
+  - row_count same as salaries in dwh_raw:
+      name: Un avantage calculé pour chaque salarié du fichier RH
+  - duplicate_count(id_salarie) = 0:
+      name: Pas de salarié en double
+  - min(montant_prime) >= 0:
+      name: Pas de prime négative
+  - min(cout_bien_etre) >= 0:
+      name: Pas de coût bien-être négatif
+  - invalid_count(statut_declaration):
+      name: Déclarations de trajet à vérifier par les RH (suspectes ou non vérifiées)
+      valid values: [non concerné, conforme]
+      warn: when > 0
+
+checks for kpi_synthese:
+  - row_count = 1:
+      name: Une seule ligne de synthèse
+  - min(cout_total) > 0:
+      name: Coût total positif
+
+checks for parametres:
+  - row_count = 1:
+      name: Un seul jeu de paramètres
+  - invalid_count(taux_prime) = 0:
+      name: Taux de prime plausible (entre 0 et 20 %)
+      valid min: 0
+      valid max: 0.2
+  - invalid_count(nb_activites_min) = 0:
+      name: Nombre minimal d'activités plausible (entre 1 et 365)
+      valid min: 1
+      valid max: 365

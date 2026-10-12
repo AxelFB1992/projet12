@@ -25,6 +25,7 @@ from projet12.config import FICHIER_RH, FICHIER_SPORT, connexion_app
 from projet12.generation.ecriture import compter_par_source, inserer_activites
 from projet12.generation.generateur import (
     TZ,
+    appliquer_anomalie,
     charger_salaries,
     generer_historique,
     generer_live,
@@ -102,12 +103,21 @@ def commande_live(args: argparse.Namespace) -> int:
         while True:
             # On génère un nombre d'activité définies par l'argument args.n
             activites = generer_live(salaries, args.n, datetime.now(TZ), rng)
+            # On applique des anomalies aux activités générés en live si tant est que le jeton généré est  < à args.taux_anomalies
+            # C'est exactement la même chose que ce que l'on fait dans commande_backfill ci-dessus qui utilise generer_historique
+            activites = [appliquer_anomalie(a, rng) if rng.random() < args.taux_anomalies else a
+                         for a in activites]
             # On écrit ces activités dans la base de données
             inserer_activites(conn, activites)
             # Et on affiche un petit récapitulatif pour chacune des activités
             for a in activites:
-                distance = f"{a.distance_m / 1000:.1f} km" if a.distance_m else "-"
-                log.info("🏃 Salarié %s : %s, %s", a.id_salarie, a.type_activite, distance)
+                duree_s = (a.date_fin - a.date_debut).total_seconds()
+                details = f"{round(duree_s / 60)} min"
+                if a.distance_m:
+                    details = f"{a.distance_m / 1000:.1f} km, {details}"
+                    if duree_s > 0:
+                        details += f", {a.distance_m / 1000 / (duree_s / 3600):.1f} km/h"
+                log.info("🏃 Salarié %s : %s, %s", a.id_salarie, a.type_activite, details)
             if args.intervalle <= 0:
                 return 0
             time.sleep(args.intervalle)   # mode boucle : Ctrl+C pour arrêter
@@ -151,6 +161,7 @@ def main() -> int:
     p_live = sous.add_parser("live", help="Activités qui viennent de se terminer")
     p_live.add_argument("--n", type=int, default=1, help="Nombre d'activités par envoi (défaut : 1)")
     p_live.add_argument("--intervalle", type=int, default=0, help="Secondes entre deux envois ; 0 = un seul envoi (défaut : 0)")
+    p_live.add_argument("--taux-anomalies", type=float, default=0.0, help="Part d'activités volontairement erronées, ex. 0.5 (défaut : 0)")
     p_live.set_defaults(func=commande_live)
 
     # Analyse et aiguille la commande grâce au parseur principal ainsi qu'à tous ses parseurs secondaires

@@ -1,0 +1,8 @@
+type_activite,vitesse_max_kmh
+Course à pied,25
+Marche,10
+Randonnée,10
+Natation,8
+Vélo,60
+Voile,60
+Équitation,50

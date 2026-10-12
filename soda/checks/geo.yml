@@ -1,0 +1,19 @@
+# Contrôles des distances domicile-travail (data source dwh_geo = schéma geo).
+# Une distance manquante rend la déclaration "non vérifiée" : la prime n'est
+# pas versée, d'où un avertissement à traiter par les RH.
+
+checks for distances_domicile_travail:
+  - row_count > 0:
+      name: Des distances ont été calculées
+  - duplicate_count(id_salarie) = 0:
+      name: Une seule distance par salarié
+  - invalid_count(statut) = 0:
+      name: Itinéraire trouvé par Google pour chaque trajet
+      valid values: [ROUTE_EXISTS]
+      warn: when > 0
+  - missing_count(distance_m) = 0:
+      name: Distance renseignée
+      warn: when > 0
+  - freshness(calcule_le):
+      name: Distances recalculées récemment (adresses à jour)
+      warn: when > 90d

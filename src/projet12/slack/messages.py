@@ -4,9 +4,23 @@ Module « pur » : pas de réseau, pas de Kafka. Il transforme un message JSON
 reçu de Redpanda en texte Slack (ou None si l'activité ne doit pas être publiée).
 """
 
+import csv
 import json
 import random
 from datetime import datetime
+from pathlib import Path
+
+from projet12.config import RACINE
+
+# Vitesses maximales par sport : MÊME fichier que dbt (une seule source de vérité)
+FICHIER_VITESSES_MAX = RACINE / "dbt" / "seeds" / "vitesses_max.csv"
+
+def charger_vitesses_max(chemin: Path = FICHIER_VITESSES_MAX) -> dict[str, float]:
+    """{'Natation': 8.0, 'Vélo': 60.0, ...}"""
+    with open(chemin, encoding="utf-8", newline="") as f:
+        return {ligne["type_activite"]: float(ligne["vitesse_max_kmh"]) for ligne in csv.DictReader(f)}
+
+VITESSES_MAX = charger_vitesses_max()
 
 # Seules les activités "live" sont publiées : l'historique (backfill) est ignoré.
 SOURCES_PUBLIEES = {"live", "strava"}
@@ -44,6 +58,11 @@ def formater_distance(metres: int) -> str:
     if metres < 1000:
         return f"{metres} m"
     return f"{metres / 1000:.1f} km".replace(".", ",")
+    
+# Fonction rajoutée pour formater et affiche la vitesse dans les messages slack au même titre que la distance et la durée
+def formater_vitesse(metres: int, secondes: int) -> str:
+    """10800 m en 2760 s -> '14,1 km/h'."""
+    return f"{metres / 1000 / (secondes / 3600):.1f} km/h".replace(".", ",")
 
 # Même chose pour la durée, en fonction de son ordre de grandeur, soit on la formate en heures, soit on la garde en minutes
 def formater_duree(secondes: int) -> str:
@@ -55,6 +74,30 @@ def formater_duree(secondes: int) -> str:
         return f"{minutes} min"
     return f"{minutes // 60} h {minutes % 60:02d}"
 
+def est_coherente(evenement: dict) -> bool:
+    """Mêmes règles que est_valide dans dbt (stg_activites) : une activité
+    incohérente n'est pas annoncée sur Slack, elle est signalée par Soda."""
+    debut = datetime.fromisoformat(evenement["date_debut"])
+    fin = datetime.fromisoformat(evenement["date_fin"])
+    distance_m = evenement.get("distance_m")
+    # Si l'activité a duré plus d'un journée ou moins de 0 secondes
+    # Alors on ne publie pas l'activité sur slack : elle sera testé via cette méthode dans la méthode ci-dessous (doit_etre_publie)
+    duree_s = (fin - debut).total_seconds()
+    if not 0 < duree_s < 24 * 3600:
+        return False
+
+    # En ce qui concerne la distance, on a rajouté des tests plus serieux que ceux que l'on avait mis en place précedemment
+    # En effet, ceux-ci ne se contentent pas d'une distance fixe mais utilise le réferentiel de distance importé en entête
+    # Celui-ci permet d'analyse la cohérence de la distance ET de la vitesse (distance/duree) en fonction du sport
+    distance_m = evenement.get("distance_m")
+    if distance_m is None:                      # sport sans distance : rien d'autre à vérifier
+        return True
+    if not 0 <= distance_m <= 300_000:
+        return False
+    vitesse_max = VITESSES_MAX.get(evenement["type_activite"])
+    vitesse_kmh = distance_m / 1000 / (duree_s / 3600)
+    return vitesse_max is None or vitesse_kmh <= vitesse_max
+
 # Fonction simple qui permet simplement de déterminer si l'évenement doit être publié sur Slack
 # Si il s'agit de l'historique (backfille) alors il ne faut pas le publier et on retourne false. Sinon True.
 def doit_etre_publie(evenement: dict) -> bool:
@@ -65,6 +108,7 @@ def doit_etre_publie(evenement: dict) -> bool:
     return (
         evenement.get("__op") in OPERATIONS_PUBLIEES
         and evenement.get("source") in SOURCES_PUBLIEES
+        and est_coherente(evenement)
     )
 
 # Cette méthode utilise, entre autre, les 3 méthodes précedentes (formater_duree, de_sport, formater_distance) pour formatter un message en texte
@@ -80,7 +124,10 @@ def construire_message(evenement: dict, noms: dict[int, str], rng: random.Random
     # On utilise les méthode fromisoformat de datetime pour transformer les date en datetime
     debut = datetime.fromisoformat(evenement["date_debut"])
     fin = datetime.fromisoformat(evenement["date_fin"])
-    duree = formater_duree(int((fin - debut).total_seconds()))
+    #duree = formater_duree(int((fin - debut).total_seconds()))
+    # On reformule le formattage de la durée de cette façon pour pouvoir se reservir de duree_s dans le formattage de la vitesse
+    duree_s = int((fin - debut).total_seconds())
+    duree = formater_duree(duree_s)
 
     distance_m = evenement.get("distance_m")
     if distance_m:
@@ -89,6 +136,8 @@ def construire_message(evenement: dict, noms: dict[int, str], rng: random.Random
         # Quel que soit le modèle retenu, on remplace les {} de la phrase par les vraies valeurs grâce à la méthode format.
         texte = modele.format(nom=nom, de_sport=de_sport(sport),
                               distance=formater_distance(distance_m), duree=duree)
+        # On ajoute la vitesse dans le message, comme cela était souhaité
+        texte += f" — {formater_vitesse(distance_m, duree_s)} de moyenne"
     else:
         # De même pour les modèles sans distance
         texte = MODELE_SANS_DISTANCE.format(nom=nom, de_sport=de_sport(sport), duree=duree)

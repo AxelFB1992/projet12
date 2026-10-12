@@ -34,3 +34,19 @@ seeds:
         description: Jours travaillés par an, pour valoriser une journée
       - name: periode_jours
         description: Période (en jours) sur laquelle on compte les activités
+
+  #Il y a désormais un autre fichier de paramètres pour gérer les vitesses : seeds.yml
+  - name: vitesses_max
+    description: >
+      Vitesse moyenne maximale plausible par sport (marge large au-dessus des records).
+      Au-delà, l'activité est jugée incohérente : exclue des avantages (dbt),
+      signalée (Soda) et non annoncée sur Slack, qui lit aussi ce fichier.
+    config:
+      column_types:
+        type_activite: text
+        vitesse_max_kmh: numeric
+    columns:
+      - name: type_activite
+        data_tests: [unique, not_null]
+      - name: vitesse_max_kmh
+        description: Vitesse moyenne maximale en km/h

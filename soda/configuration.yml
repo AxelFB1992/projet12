@@ -1,0 +1,32 @@
+# Connexions de Soda à l'entrepôt. Aucun secret ici : les valeurs entre
+# accolades précédées d'un dollar sont lues dans les variables d'environnement
+# (fichier .env, via uv run --env-file).
+# Soda raisonne par "data source" = une connexion + un schéma : on en déclare
+# une par schéma contrôlé.
+
+data_source dwh_raw:
+  type: postgres
+  host: ${POSTGRES_HOST}
+  port: ${POSTGRES_PORT}
+  username: etl
+  password: ${ETL_PASSWORD}
+  database: dwh
+  schema: raw
+
+data_source dwh_geo:
+  type: postgres
+  host: ${POSTGRES_HOST}
+  port: ${POSTGRES_PORT}
+  username: etl
+  password: ${ETL_PASSWORD}
+  database: dwh
+  schema: geo
+
+data_source dwh_analytics:
+  type: postgres
+  host: ${POSTGRES_HOST}
+  port: ${POSTGRES_PORT}
+  username: etl
+  password: ${ETL_PASSWORD}
+  database: dwh
+  schema: analytics

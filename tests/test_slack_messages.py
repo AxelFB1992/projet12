@@ -2,7 +2,7 @@
 
 import json
 
-from projet12.slack.messages import formater_distance, formater_duree, traiter_evenement
+from projet12.slack.messages import formater_distance, formater_duree, traiter_evenement, formater_vitesse
 
 NOMS = {43015: "Juliette Mendes"}
 
@@ -19,11 +19,11 @@ def evenement(**champs) -> bytes:
 
 def test_message_course_comme_dans_la_note_de_cadrage():
     texte = traiter_evenement(evenement(), NOMS)
-    assert texte == "Bravo Juliette Mendes ! Tu viens de courir 10,8 km en 46 min ! Quelle énergie !"
+    assert texte == "Bravo Juliette Mendes ! Tu viens de courir 10,8 km en 46 min ! Quelle énergie ! — 14,1 km/h de moyenne"
 
 
 def test_commentaire_ajoute_entre_guillemets():
-    texte = traiter_evenement(evenement(type_activite="Randonnée", commentaire="Top spot"), NOMS)
+    texte = traiter_evenement(evenement(commentaire="Top spot"), NOMS)
     assert texte.endswith('("Top spot")')
 
 
@@ -49,3 +49,21 @@ def test_formats():
     assert formater_distance(10879) == "10,9 km"
     assert formater_duree(2760) == "46 min"
     assert formater_duree(3900) == "1 h 05"
+    assert formater_vitesse(10800, 2760) == "14,1 km/h"
+
+def test_activite_incoherente_non_publiee():
+    assert traiter_evenement(evenement(distance_m=-10800), NOMS) is None
+    assert traiter_evenement(evenement(distance_m=1_080_000), NOMS) is None
+    # dates inversées
+    assert traiter_evenement(evenement(date_debut="2026-10-05T14:12:00.000000Z",
+                                       date_fin="2026-10-05T13:26:00.000000Z"), NOMS) is None
+
+def test_vitesse_implausible_non_publiee():
+    # 172,4 km de natation en 33 min (> 300 km/h) : anomalie
+    nage = evenement(type_activite="Natation", distance_m=172_400,
+                     date_debut="2026-10-05T13:00:00Z", date_fin="2026-10-05T13:33:00Z")
+    assert traiter_evenement(nage, NOMS) is None
+    # 65,9 km de vélo en 2 h 30 (26 km/h) : normal
+    velo = evenement(type_activite="Vélo", distance_m=65_900,
+                     date_debut="2026-10-05T13:00:00Z", date_fin="2026-10-05T15:30:00Z")
+    assert traiter_evenement(velo, NOMS) is not None
