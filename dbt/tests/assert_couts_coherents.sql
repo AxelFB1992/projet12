@@ -1,4 +1,8 @@
--- Test métier : aucun coût négatif, et pas de coût sans éligibilité.
+-- Tests métier : 
+-- -aucune prime négative
+-- -pas de prime sans éligibilité.
+-- -aucun cout_bien_etre négatif (pour les journées bien être)
+-- -pas de cout_bien_etre sans éligibilité.
 -- Le test échoue s'il renvoie au moins une ligne.
 
 select *

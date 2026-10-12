@@ -1,3 +1,5 @@
+-- Ce modèle s'interesse purement aux activités, sans regarder les primes et avantages que les salariés peuvent avoir
+
 -- Une ligne par activité, enrichie pour l'analyse de la pratique sportive (Power BI).
 
 select

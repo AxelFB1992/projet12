@@ -1,3 +1,4 @@
+# Ce fichier sert aussi bien à la génération de la documentation qu'à réaliser des tests unitaires sur chaque colonne
 version: 2
 
 models:

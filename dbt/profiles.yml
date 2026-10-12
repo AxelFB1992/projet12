@@ -1,7 +1,13 @@
-# Connexion de dbt à l'entrepôt. Aucun secret ici : tout vient des variables
-# d'environnement (fichier .env), lues avec env_var().
+# Ce fichier contient les informations de connexion pour différents profils ou différentes machines
+# Connexion de dbt à l'entrepôt. Aucun secret ici : tout vient des variables d'environnement (fichier .env), lues avec env_var().
+
+# Un profil est un ensemble de connexions à la base de données et contient une ou plusieurs cible
+# Ici il n'y a qu'un profil qui va écrire sur la base de données dwh : ce sont toutes les transformations dbt que l'on va opérér
 sport_data:
+  # Un profil peut avoir plusieurs environnement (dev, prod, etc). Ici il s'agit bien de l'environnement de dev pour ce poc.
   target: dev
+  # Dans cet environnement, on va indiquer les endroits dans lequel le "projet" (son profil) va écrire.
+  # Ici il s'agit de la base de données dwh sur le serveur postgres conteneurisé.
   outputs:
     dev:
       type: postgres
@@ -10,5 +16,6 @@ sport_data:
       user: etl
       password: "{{ env_var('ETL_PASSWORD') }}"
       dbname: dwh
+      # Schema par défaut : le schémas dans lequel va un modèle qui n'a pas de schéma dans dbt_projet.yml
       schema: staging
       threads: 4

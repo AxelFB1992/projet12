@@ -1,23 +1,38 @@
+# Fichier de présentation du projet global (partie dbt)
 name: sport_data
 version: "1.0.0"
 profile: sport_data
 
+# On indique ici où se trouvent les différents parties de l'architecture dbt : les modeles dans "models", les seeds dans "seeds"
+# Les modèles permettant la transformations des tables raw en table marts en passant par les vues staging
 model-paths: ["models"]
+# Les règles métiers ainsi que la description et les types des colonnes (fichiers .csv)
 seed-paths: ["seeds"]
+# Permet d'utiliser des fonctions réutilisables pour modifier certains attributs des tables (par exemple leurs noms)
 macro-paths: ["macros"]
+# Les tests permettent de s'assurer que les transformations par les modèles n'ont pas abouti à des données incohérentes
+# Les types peuvent concerner tous types d'objets : sources, seeds ou models (staging, intermediate, marts)
 test-paths: ["tests"]
 
+# Les dossiers qui vont être supprimé après execution des traitments : le sql compilé (target) et les paquets installés par dbt deps
 clean-targets: ["target", "dbt_packages"]
 
+# La description des modèles pour le projet sport_data 
+# On porrait faire référence à un autre projet si on avait besoin de paquets externes pour nos transformations
 models:
   sport_data:
+    # Parmi les modèles, ceux de la phase staging se trouveront dans le schémas postgres "staging", sous forme de vue.
     staging:
       +schema: staging          # nettoyage : vues, recalculées à chaque lecture
       +materialized: view
+    # Parmi les modèles, ceux de la phase marts se trouveront dans le schémas postgres "analytics" sous forme de vue.
     marts:
       +schema: analytics        # restitution : tables lues par Power BI
       +materialized: table
 
+# De la même manière, la description des seeds qui vont être enregistrés dans une table sql sous le format analytics
+# Ce sont des données qui ne proviennent pas de sources réelles mais qui ont un intérêt dans la phase analytique
 seeds:
   sport_data:
+    # Sera donc crée la table analytics.parametres qui va être utile au moment de l'analyse avec Power BI
     +schema: analytics          # les paramètres sont visibles dans Power BI

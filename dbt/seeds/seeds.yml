@@ -1,11 +1,15 @@
+# Ce fichier structure les véritables fichiers de seeds pointé par la rubrique ci-dessous (seeds)
+# Ici il n'y a qu'un fichier de seeds 
 version: 2
 
 seeds:
+  # Le nom du seul fichier de seed qu'il y a actuellement : parametres.csv
   - name: parametres
     description: >
       Paramètres métier par défaut des avantages sportifs (une seule ligne).
       Modifiables ici, ou surchargés au lancement : dbt build --vars '{taux_prime: 0.03}'.
     config:
+      # Le type de chacun des colonnes
       column_types:
         taux_prime: numeric
         seuil_marche_km: numeric
@@ -14,6 +18,7 @@ seeds:
         nb_activites_min: integer
         jours_travailles_an: integer
         periode_jours: integer
+    # La description de chaque colonne 
     columns:
       - name: taux_prime
         description: Part du salaire brut annuel versée en prime (0.05 = 5 %)

@@ -1,5 +1,8 @@
+# Ce fichier sert à indiquer les tables sources pour les différents modèle de staging
+# Il se contente de donner la liste des sources : chaque modèle viendra récuperer la bonne base du bon schéma dans son code
 version: 2
 
+# On commence par indiquer les 3 sources bruts (directement ingéré par Redpanda - chargement) dans la base de données dwh
 sources:
   - name: raw
     description: Données brutes, chargées telles quelles par les scripts Python
@@ -21,6 +24,7 @@ sources:
           - name: id_activite
             data_tests: [unique, not_null]
 
+# Puis on va chercher la table distances_domicile_travail du schémas geo, nécessaires aux transformations
   - name: geo
     description: Distances domicile-travail (API Google Routes)
     schema: geo

@@ -1,26 +1,50 @@
+-- Ce modèle s'interesse aux avantages que les salariés peuvent avoir par rapport aux activités qu'ils ont déclaré
+
 -- Une ligne par salarié : éligibilité aux deux avantages et coût pour l'entreprise.
 -- Volontairement SANS nom, adresse ni salaire individuel (données lues par Power BI).
 
-with parametres as (
+-- On va faire la jointure de 3 vues staging : stg_parametres, stg_salaries et stg_activites
+with 
+
+-- On prend la vue stg_parametres avec tous ses paramètres
+parametres 
+as (
     select * from {{ ref('stg_parametres') }}
 ),
 
-salaries as (
+-- On prend la vue stg_salaries avec tous ses paramètres
+salaries 
+as (
     select * from {{ ref('stg_salaries') }}
 ),
 
--- Activités valides sur la période, postérieures à l'embauche
-activites_periode as (
-    select a.id_salarie, count(*) as nb_activites
-    from {{ ref('stg_activites') }} a
-    join salaries s using (id_salarie)
-    cross join parametres p
-    where a.est_valide
-      and a.date_activite >= current_date - p.periode_jours::int
-      and a.date_activite >= s.date_embauche
-    group by a.id_salarie
+-- On prend la vue stg_activites avec certains paramètres seulement : id_salarie et nb_activites et avec des conditins
+-- Conditions réalisés à l'aide d'une jointure interne avec les deux tables cités précedemment : 
+-- 	-Activité valide au sens du tests présent 'est_valide' déjà présent dans les champs de la table
+-- 	-Activité réalisé sur la période d'étude prévue dans les paramètres
+-- 	-Activité postérieure à la date d'embauche de chaque salarié
+-- On groupe le résultat de la jointure et du nombre n'activité par salarié (id_salarié)
+activites_periode 
+	as (select a.id_salarie, count(*) as nb_activites
+    	from {{ ref('stg_activites') }} a
+    	join salaries s using (id_salarie)
+    	cross join parametres p
+    	where a.est_valide
+      	and a.date_activite >= current_date - p.periode_jours::int
+      	and a.date_activite >= s.date_embauche
+    	group by a.id_salarie
 ),
 
+
+-- Auparavant on a prépareé 3 tables qui vont nous permettre de faire nos traitements
+-- Ici on commence véritable les traitements qui vont nous permettre d'arriver à la table finale en base de ce fichier
+-- On remarque que 2 nouvelles tables sont ajoutées aux traitements : stg_sports et stg_distances
+
+-- Ici on commence par faire tous les calculs et traitement pour calculer les primes et journées bien-être
+-- Les traitments les plus complexes concernes :
+-- -le seuil de km (seuil_km) correspondant au salarié et à son mode de transport -> à aller cherche dans la table p de paramètres
+-- -le statut de la déclaration (statut_declaration) pour juger si la distance réelle domicile-travail d'un salarié est suspecte
+-- 		par rapport à ce qu'il a renseigné comme mode de déplacement (WALK ou BYCICLE)
 base as (
     select
         s.*,
@@ -56,6 +80,13 @@ base as (
     left join {{ ref('stg_distances') }} d using (id_salarie)
     left join activites_periode a using (id_salarie)
 )
+
+-- Ici on récupère seulement les champs qui nous interesseet on calcule :
+-- -Eligibilité à la prime
+-- -Montant de la prime
+-- -Eligibilite aux journees bien-être
+-- -Nombre de jours bien-être octroyé au salarié
+-- -Couts des journées bien-être
 
 select
     id_salarie,
