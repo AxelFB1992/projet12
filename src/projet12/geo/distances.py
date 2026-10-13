@@ -8,7 +8,7 @@ Ce module contient 3 méthodes permettant chacune de réaliser une action diffé
     - trajets_a_calculer : permet de retourner les listes des trajets à calculer en fonction des salariés qui ont déclaré un moyen de transport
         sportif pour venir au travail
     - calculer : permet de calculer les distances domiciles-travail des trajets de la liste retournées par la méthode précedente. Cette méthode
-        ne fait pas directement appel à l'API google mais délègue cela à la méthode calculer_lot de routes.py
+        ne fait pas directement appel à l'API google mais délègue cela à la méthode calculer_distances_par_lot de routes.py
     - enregistrer : permet d'écrire l'intégralité des résultats obtenus (informations de trajets + résultats du calcul) obtenues par la méthode
         précedente dans la base de données geo.distances_domicile_travail
 
@@ -29,7 +29,7 @@ from datetime import datetime
 import httpx
 import psycopg
 
-from projet12.geo.routes import TAILLE_LOT, calculer_lot
+from projet12.geo.routes import TAILLE_LOT, calculer_distances_par_lot
 
 # Mode déclaré dans le fichier RH -> mode de calcul de l'API Google
 MODES_API = {
@@ -81,12 +81,12 @@ def trajets_a_calculer(conn: psycopg.Connection, forcer: bool = False) -> tuple[
         return sportifs, 0
     # Sinon, on ne recalcule les distances que pour les trajets sportifs qui ne sont pas déjà en cache
     a_calculer = [t for t in sportifs if t not in en_cache]
-    # On retourne la liste de trajet à calculer et la différence entre tous les trajets sportifs et ceux qui sont à calculer
+    # On retourne la liste de trajet à calculer et la différence entre tous les trajets sportifs et ceux qui sont à calculer_distances_trajets
     # C'est à dire les trajets sportifs à ne pas recalculer
     return a_calculer, len(sportifs) - len(a_calculer)
 
 # Pour la liste de trajets à calculer (retournée par la méthode ci-dessus), on effectue le calcul des distance réelles par l'API de google
-def calculer(client: httpx.Client, cle: str, trajets: list[Trajet], destination: str) -> list[tuple]:
+def calculer_distances_trajets(client: httpx.Client, cle: str, trajets: list[Trajet], destination: str) -> list[tuple]:
     """Appelle l'API par lots, mode par mode. Renvoie les lignes à enregistrer."""
     lignes = []
     # Pour tous 2 modes de transport prévu (t.mode-api) ordonné dans un certain ordre
@@ -97,10 +97,10 @@ def calculer(client: httpx.Client, cle: str, trajets: list[Trajet], destination:
         for i in range(0, len(du_mode), TAILLE_LOT):
             # On ne récupère que les trajets qui correspondent au mode courant
             lot = du_mode[i:i + TAILLE_LOT]
-            # On utilise la méthode calculer_lot pour calculer les distances par lot de trajets
+            # On utilise la méthode calculer_distances_par_lot pour calculer les distances par lot de trajets
             # On passe la clé API en paramètre ainsi que le client pour pouvoir se connecter à l'API dans 
-            # ", France" aide le géocodage des adresses incomplètes (sans code postal...) calculer_lot
-            resultats = calculer_lot(client, cle, [f"{t.adresse}, France" for t in lot], destination, mode)
+            # ", France" aide le géocodage des adresses incomplètes (sans code postal...) calculer_distances_par_lot
+            resultats = calculer_distances_par_lot(client, cle, [f"{t.adresse}, France" for t in lot], destination, mode)
             # On parcourt les résultats en les parcourant par tuple grâce à la méthode zip qui associe chaque trajet(lot) à chaqye distance (résultat)
             for t, r in zip(lot, resultats):
                 # On ajoute à la liste 'lignes' les résultats du calcul avec les informations des trajets et les résultats du calcul
@@ -108,7 +108,7 @@ def calculer(client: httpx.Client, cle: str, trajets: list[Trajet], destination:
     return lignes
 
 # Permet d'enregistrer les distances calculées (sous forme de liste de tuples) dans la base de données dwh
-def enregistrer(conn: psycopg.Connection, lignes: list[tuple], debut: datetime) -> None:
+def enregistrer_distances_en_base(conn: psycopg.Connection, lignes: list[tuple], debut: datetime) -> None:
     """Upsert des distances + trace dans monitoring.pipeline_runs (une transaction)."""
     # Toujours avec un curseur pour executer les instructions 
     with conn.cursor() as cur:
@@ -134,7 +134,7 @@ def enregistrer(conn: psycopg.Connection, lignes: list[tuple], debut: datetime) 
     conn.commit()
 
 # Une méthode qui permet de creer la table geo.distances_domicile_travail si elle n'existe pas
-def preparer_table(conn: psycopg.Connection) -> None:
+def preparer_table_geo(conn: psycopg.Connection) -> None:
     with conn.cursor() as cur:
         cur.execute(DDL)
     conn.commit()

@@ -22,11 +22,11 @@ def _secondes(duree: str | None) -> int | None:
     return int(duree.rstrip("s")) if duree else None
 
 # Cette méthode prend en paramètre une liste d'origine (str) et une destination (str) et renvoit une liste de distance (list[dict])
-def calculer_lot(client: httpx.Client, cle: str, origines: list[str], destination: str, mode: str) -> list[dict]:
+def calculer_distances_par_lot(client: httpx.Client, cle: str, origines: list[str], destination: str, mode: str) -> list[dict]:
     """Distances de plusieurs origines vers une destination, pour un mode (WALK, BICYCLE).
     Renvoie une liste alignée sur `origines` : {distance_m, duree_s, statut}."""
     # le corps du message que l'on va envoyer à l'API de google via le endpoint ci-dessous (client.post(URL, corps, entetes)
-    # Ce corps contient : les origines, la destination et le moyen de déplacement (Il n'y a qu'un seul moyen par appel de calculer_lot)
+    # Ce corps contient : les origines, la destination et le moyen de déplacement (Il n'y a qu'un seul moyen par appel de calculer_distances_par_lot)
     corps = {
         "origins": [{"waypoint": {"address": a}} for a in origines],
         "destinations": [{"waypoint": {"address": destination}}],

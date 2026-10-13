@@ -4,8 +4,8 @@ import json
 
 import httpx
 
-from projet12.geo.distances import Trajet, calculer
-from projet12.geo.routes import calculer_lot
+from projet12.geo.distances import Trajet, calculer_distances_trajets
+from projet12.geo.routes import calculer_distances_par_lot
 
 
 def client_simule(reponse_par_mode: dict, appels: list) -> httpx.Client:
@@ -31,7 +31,7 @@ def route(distance_m, duree_s):
 def test_conversion_reponse_google():
     appels = []
     client = client_simule({"WALK": route(4818, 3949)}, appels)
-    r = calculer_lot(client, "CLE", ["a", "b"], "bureau", "WALK")
+    r = calculer_distances_par_lot(client, "CLE", ["a", "b"], "bureau", "WALK")
     assert r == [{"distance_m": 4818, "duree_s": 3949, "statut": "ROUTE_EXISTS"}] * 2
     assert appels[0]["entetes"]["x-goog-api-key"] == "CLE"
     assert "x-goog-fieldmask" in appels[0]["entetes"]
@@ -40,7 +40,7 @@ def test_conversion_reponse_google():
 def test_route_introuvable():
     appels = []
     introuvable = {"WALK": lambda a: {"condition": "ROUTE_NOT_FOUND"}}
-    r = calculer_lot(client_simule(introuvable, appels), "CLE", ["a"], "bureau", "WALK")
+    r = calculer_distances_par_lot(client_simule(introuvable, appels), "CLE", ["a"], "bureau", "WALK")
     assert r[0] == {"distance_m": None, "duree_s": None, "statut": "ROUTE_NOT_FOUND"}
 
 
@@ -48,7 +48,7 @@ def test_decoupage_par_mode_et_par_lots_de_25():
     appels = []
     client = client_simule({"WALK": route(1000, 600), "BICYCLE": route(9000, 1800)}, appels)
     trajets = [Trajet(i, f"adresse {i}", "BICYCLE") for i in range(30)] + [Trajet(99, "x", "WALK")]
-    lignes = calculer(client, "CLE", trajets, "bureau")
+    lignes = calculer_distances_trajets(client, "CLE", trajets, "bureau")
     assert len(lignes) == 31
     assert [len(a["corps"]["origins"]) for a in appels] == [25, 5, 1]   # 2 lots vélo + 1 marche
     assert all(o["waypoint"]["address"].endswith(", France")

@@ -10,10 +10,10 @@ from projet12.generation.generateur import (
     TZ,
     Salarie,
     charger_salaries,
-    generer_historique,
-    generer_live,
+    simuler_historique_seances,
+    simuler_n_seances,
 )
-from projet12.generation.profils import PROFILS_PAR_SPORT
+from projet12.generation.profils import ACTIVITES_PAR_SPORT
 
 FIN = datetime(2026, 10, 5, 18, 0, tzinfo=TZ)
 SALARIES_TEST = [
@@ -26,7 +26,7 @@ SALARIES_TEST = [
 
 @pytest.fixture(scope="module")
 def historique():
-    return generer_historique(SALARIES_TEST * 10, fin=FIN, graine=1)
+    return simuler_historique_seances(SALARIES_TEST * 10, fin=FIN, graine=1)
 
 
 def test_dates_dans_la_periode_et_coherentes(historique):
@@ -40,7 +40,7 @@ def test_distances_positives_ou_vides(historique):
 
 
 def test_pas_de_distance_pour_les_sports_sans_distance(historique):
-    escalade = [a for a in historique if a.type_activite == "Escalade"]
+    escalade = [a for a in historique if a.nom_activite == "Escalade"]
     assert escalade and all(a.distance_m is None for a in escalade)
 
 
@@ -50,22 +50,22 @@ def test_aucune_activite_avant_embauche(historique):
 
 
 def test_reproductible_avec_la_meme_graine():
-    a = generer_historique(SALARIES_TEST, fin=FIN, graine=7)
-    b = generer_historique(SALARIES_TEST, fin=FIN, graine=7)
+    a = simuler_historique_seances(SALARIES_TEST, fin=FIN, graine=7)
+    b = simuler_historique_seances(SALARIES_TEST, fin=FIN, graine=7)
     assert a == b
 
 
 def test_anomalies_injectees_sur_demande():
-    avec = generer_historique(SALARIES_TEST * 10, fin=FIN, graine=1, taux_anomalies=0.5)
+    avec = simuler_historique_seances(SALARIES_TEST * 10, fin=FIN, graine=1, taux_anomalies=0.5)
     erreurs = [a for a in avec if (a.distance_m or 0) < 0 or a.date_fin <= a.date_debut
                or (a.distance_m or 0) > 500_000]
     assert erreurs
 
 
 def test_live_se_termine_maintenant():
-    activites = generer_live(SALARIES_TEST, n=5, maintenant=FIN, rng=random.Random(0))
-    assert len(activites) == 5
-    for a in activites:
+    seances = simuler_n_seances(SALARIES_TEST, n=5, maintenant=FIN, rng=random.Random(0))
+    assert len(seances) == 5
+    for a in seances:
         assert a.source == "live"
         assert FIN - timedelta(minutes=5) <= a.date_fin <= FIN
         assert a.date_debut < a.date_fin
@@ -74,4 +74,4 @@ def test_live_se_termine_maintenant():
 @pytest.mark.skipif(not FICHIER_RH.exists(), reason="fichiers RH absents")
 def test_tous_les_sports_du_fichier_rh_ont_un_profil():
     sports = {s.sport for s in charger_salaries(FICHIER_RH, FICHIER_SPORT) if s.sport}
-    assert sports <= PROFILS_PAR_SPORT.keys()
+    assert sports <= ACTIVITES_PAR_SPORT.keys()

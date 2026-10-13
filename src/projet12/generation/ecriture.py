@@ -2,7 +2,7 @@
 
 import psycopg
 
-from projet12.generation.generateur import Activite
+from projet12.generation.generateur import Seance
 
 COLONNES = (
     "id_salarie", "date_debut", "type_activite", "distance_m",
@@ -10,7 +10,7 @@ COLONNES = (
 )
 
 #Dans la mesure ou les méthodes principales du script generateur.py ne retourne que des listes d'activités, il faut bien les écrire !
-def inserer_activites(conn: psycopg.Connection, activites: list[Activite]) -> int:
+def inserer_seances(conn: psycopg.Connection, seances: list[Seance]) -> int:
     """Insère les activités en une seule transaction, avec COPY
     (beaucoup plus rapide que des INSERT ligne par ligne)."""
     # On prépare la requête d'écrire avec ce qui va être ajoutés (',') concaténés au colonnes
@@ -18,14 +18,14 @@ def inserer_activites(conn: psycopg.Connection, activites: list[Activite]) -> in
     # On attend d'avoir ajouté les différentes lignes correspondant aux activités dans copy avant d'ecrire le contenu complet du curseur avec commit
     # Le curseur est généré à partir de l'objet de connection qui contient déjà les paramètre de connection (psycopg.Connection)
     with conn.cursor() as cur, cur.copy(requete) as copy:
-        for a in activites:
+        for a in seances:
             copy.write_row((
-                a.id_salarie, a.date_debut, a.type_activite, a.distance_m,
+                a.id_salarie, a.date_debut, a.nom_activite, a.distance_m,
                 a.date_fin, a.commentaire, a.source,
             ))
     conn.commit()
     # Retourne le nombre d'activités commités en tant que validation
-    return len(activites)
+    return len(seances)
 
 # Compter le nombre d'activités présente qui appartiennent soit à l'historique ('backfill') soit à la génération en direct ('live')
 def compter_par_source(conn: psycopg.Connection, source: str) -> int:

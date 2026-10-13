@@ -12,10 +12,10 @@ import httpx
 
 from projet12.config import ADRESSE_ENTREPRISE, cle_google, connexion_dwh
 from projet12.geo.distances import (
-    calculer,
-    enregistrer,
+    calculer_distances_trajets,
+    enregistrer_distances_en_base,
     #maintenant,
-    preparer_table,
+    preparer_table_geo,
     trajets_a_calculer,
 )
 
@@ -46,7 +46,7 @@ def main() -> int:
     # On se ressert encore de connexion_dwh pour se connecter à la base dwh en vu de l'écriture des résultats
     with connexion_dwh() as conn:
         # On crée la table qui va recevoir les résultats (geo.distances_domicile_travail) si jamais elle n'existe pas
-        preparer_table(conn)
+        preparer_table_geo(conn)
         # On récupère les trajets à calculer ainsi que le nombre de trajets pour lesquels la distance est déjà calculé 
         trajets, en_cache = trajets_a_calculer(conn, forcer=args.force)
         # On inscrit dans les logs le nombre de trajets à calculer et ceux déjà en cache
@@ -55,9 +55,9 @@ def main() -> int:
             return 0
         # On utilise un client de protocole httpx (sans message d'erreur) pour faire la requête auprès de l'API (via calculer/calculer_par_lot)
         with httpx.Client(timeout=30) as client:
-            lignes = calculer(client, cle_google(), trajets, ADRESSE_ENTREPRISE)
+            lignes = calculer_distances_trajets(client, cle_google(), trajets, ADRESSE_ENTREPRISE)
         # Si aucune erreur n'a été levé et que le programme n'a pas été interrompu, alors le résultat est valide et on peut l'écrire
-        enregistrer(conn, lignes, debut)
+        enregistrer_distances_en_base(conn, lignes, debut)
 
     # On stocke les différents statuts de la réponse pour chacun des éléments 
     statuts = {}
