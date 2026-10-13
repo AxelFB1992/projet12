@@ -41,3 +41,9 @@ seeds:
   sport_data:
     # Sera donc crée la table analytics.parametres qui va être utile au moment de l'analyse avec Power BI
     +schema: analytics          # les paramètres sont visibles dans Power BI
+
+
+# Monitoring : chaque exécution de dbt laisse une trace dans monitoring.pipeline_runs,
+# comme les autres étapes (ingestion, geo, chargement, Soda).
+on-run-end:
+  - "{{ tracer_execution(results) }}"
