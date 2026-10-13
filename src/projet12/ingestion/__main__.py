@@ -24,7 +24,7 @@ def main() -> int:
         - Configurer le logger et afficher les messages de succès et/ou d'erreurs
     """
     # On définit ce logger au niveau maximum d'information (au dessus il y a WARNING et ERROR
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     # On utilise la méthode connexion_dwh pour renvoyer un connecteur à la base données dwh correctement paramétré avec les bons rôle et accès
     with connexion_dwh() as conn:
         # Pour tous les fichiers (donc les deux) et pour les deux référentiels (informations à inscrire dans les tables, au bon format)

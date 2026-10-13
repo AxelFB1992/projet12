@@ -1,0 +1,113 @@
+id: pipeline_avantages
+namespace: sport_data
+description: |
+  Pipeline batch des avantages sportifs :
+  référentiels RH -> distances Google -> contrôles des sources (Soda) -> calculs (dbt) -> contrôles des résultats (Soda).
+  Lancé chaque nuit, ou à la main avec d'autres paramètres (bouton Execute).
+  Paramètre laissé vide = valeur par défaut (dbt/seeds/parametres.csv).
+
+# Formulaire affiché au lancement manuel
+inputs:
+  - id: taux_prime
+    type: FLOAT
+    required: false
+    description: Taux de la prime sur le salaire brut (0.05 = 5 %)
+  - id: seuil_marche_km
+    type: FLOAT
+    required: false
+    description: Distance domicile-bureau maximale à pied / en courant (km)
+  - id: seuil_velo_km
+    type: FLOAT
+    required: false
+    description: Distance domicile-bureau maximale à vélo / trottinette (km)
+  - id: nb_activites_min
+    type: INT
+    required: false
+    description: Nombre minimal d'activités dans l'année pour les journées bien-être
+  - id: nb_jours_bien_etre
+    type: INT
+    required: false
+    description: Nombre de journées bien-être accordées
+  - id: recalculer_distances
+    type: BOOLEAN
+    defaults: false
+    description: Recalculer toutes les distances Google (sinon, seulement les nouvelles)
+
+# Réglages communs à toutes les tâches "shell" du flow
+pluginDefaults:
+  - type: io.kestra.plugin.scripts.shell.Commands
+    values:
+      taskRunner:
+        type: io.kestra.plugin.core.runner.Process     # exécuté dans le conteneur Kestra
+      beforeCommands:
+        - cd /projet12                                  # le projet, monté en lecture seule
+        - set -a && . ./.env && set +a                  # secrets (jamais affichés)
+        - export POSTGRES_HOST=postgres POSTGRES_PORT=5432   # adresse de Postgres vue de Docker
+        - uv sync --frozen --no-dev --quiet             # dépendances (rapide si déjà à jour)
+
+tasks:
+  - id: ingestion_referentiels
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Fichiers Excel RH et sport -> raw.salaries, raw.sports
+    commands:
+      - uv run --no-sync python -m projet12.ingestion
+
+  - id: distances_google
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Distances domicile-bureau (Google Routes API, avec cache)
+    commands:
+      - "uv run --no-sync python -m projet12.geo {{ inputs.recalculer_distances ? '--force' : '' }}"
+
+  - id: seeds_dbt
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Charge les paramètres et les vitesses max (utilisés par les contrôles Soda)
+    commands:
+      - mkdir -p /tmp/dbt && cp dbt/profiles.yml /tmp/dbt/
+      - cd dbt && uv run --no-sync dbt seed --profiles-dir /tmp/dbt --target-path /tmp/dbt/target --log-path /tmp/dbt/logs
+
+  - id: qualite_sources
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Contrôles Soda des données brutes ; un échec arrête le pipeline AVANT les calculs
+    commands:
+      - uv run --no-sync python -m projet12.qualite --seulement raw geo
+
+  - id: calculs_dbt
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Modèles et tests dbt, avec les paramètres saisis (vide = valeur par défaut)
+    commands:
+      - mkdir -p /tmp/dbt && cp dbt/profiles.yml /tmp/dbt/
+      - >-
+        cd dbt && uv run --no-sync dbt build
+        --profiles-dir /tmp/dbt --target-path /tmp/dbt/target --log-path /tmp/dbt/logs
+        --vars "{taux_prime: {{ inputs.taux_prime ?? 'null' }},
+        seuil_marche_km: {{ inputs.seuil_marche_km ?? 'null' }},
+        seuil_velo_km: {{ inputs.seuil_velo_km ?? 'null' }},
+        nb_activites_min: {{ inputs.nb_activites_min ?? 'null' }},
+        nb_jours_bien_etre: {{ inputs.nb_jours_bien_etre ?? 'null' }}}"
+
+  - id: qualite_resultats
+    type: io.kestra.plugin.scripts.shell.Commands
+    description: Contrôles Soda des tables lues par Power BI
+    commands:
+      - uv run --no-sync python -m projet12.qualite --seulement analytics
+
+# En cas d'échec d'une tâche : alerte dans Slack (l'URL du webhook vient du .env)
+errors:
+  - id: alerte_slack
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    beforeCommands:
+      - cd /projet12
+      - set -a && . ./.env && set +a
+    commands:
+      - >-
+        curl -s -o /dev/null -X POST -H 'Content-type: application/json'
+        --data '{"text": "❌ Pipeline avantages sportifs en échec. Détails dans Kestra (http://localhost:8080), exécution {{ execution.id }}."}'
+        "$SLACK_WEBHOOK_URL"
+
+triggers:
+  - id: chaque_nuit
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 2 * * *"
+    timezone: Europe/Paris

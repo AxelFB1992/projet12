@@ -10,8 +10,13 @@ import logging
 import os
 import sys
 
-from projet12.config import FICHIER_RH
-from projet12.slack.consommateur import charger_noms, consommer
+import psycopg
+
+from projet12.slack.consommateur import consommer, lire_noms_entrepot
+
+#plus nécessaire avec l'import depuis dwh via lire_noms_entrepot
+#from projet12.config import FICHIER_RH
+#from projet12.slack.consommateur import charger_noms, consommer
 
 # Crée ou récupuère le logger nommé "Slack"/ C'est juste une autre moyen que le print d'afficher des logs / Rien à voir avec l'application Slack
 log = logging.getLogger("slack")
@@ -29,7 +34,7 @@ def main() -> int:
     """
     # Les deux lignes ci-dessous configurent l'affichage des logs
     # Celle-ci indique le niveau minimale d'information pour les logs (pas de message de DEBUG)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     # Celle-ci gère un paramètre de sécurité : httpx journalise l'URL de chaque requête, donc l'URL secrète du webhook
     logging.getLogger("httpx").setLevel(logging.WARNING)
     # Le parseur de la commande passé en paramètre lors de l'appel de l'application slack et donc de la méthode main.py
@@ -45,6 +50,15 @@ def main() -> int:
         log.error("SLACK_WEBHOOK_URL manquant dans le .env (ou utilise --dry-run)")
         return 1
 
+    # Noms lus une fois au démarrage dans l'entrepôt (vue créée par dbt) --> on utilise Slack/consommateur.py/lire_noms_entrepot
+    try:
+        noms = lire_noms_entrepot()
+        log.info("Annuaire : %d salarié(s)", len(noms))
+    except psycopg.Error:
+        log.warning("Vue notifications.noms_salaries indisponible (dbt pas encore lancé ?) : "
+                    "messages sans nom ; relancer le consommateur après dbt")
+        noms = {}
+    
     # Un message doit être consommé quant bien même le paramètre 'dry-run' est renseigné, c'est juste qu'il n'écrira pas dans slack
     consommer(
         # Il peut y avoir plusieurs Brokers pour un serveur Kafka. Chaque broker a normalement une adresse IP et l'interface commune
@@ -52,7 +66,10 @@ def main() -> int:
         bootstrap=os.getenv("KAFKA_BOOTSTRAP", "localhost:19092"),
         # Ici la variable TOPIC_ACTIVITES n'existe pas, donc c'est la valeur par défaut ("app.public.activites") qui va être appliqué
         topic=os.getenv("TOPIC_ACTIVITES", "app.public.activites"),
-        noms=charger_noms(FICHIER_RH),
+        # On a plus besoin de cette ligne puisqu'on va chercher les noms directement dans dwh
+        #noms=charger_noms(FICHIER_RH),
+        # On récupère les noms stockées dans la variable 'noms' ci-dessus
+        noms=noms,
         webhook_url=webhook,
         dry_run=args.dry_run,
     )

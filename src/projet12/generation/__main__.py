@@ -137,7 +137,7 @@ def main() -> int:
     - Effectuer l'analyse et l'aiguillage de la ligne de commande et de renvoyer un objet Namespace (args) contenant les traitements (méthode) à appliquer
     - Execute la méthode adéquate en fonction de ce qui a été renseigné en ligne de commande grâce à args.func(args) qui associe des mots à des méthodes
     """
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
 
     # Parseur principal, de premier niveau : se charge de reconnaître la commande python -m projet12.generation (seule commande que notre application peut executer)
     parser = argparse.ArgumentParser(

@@ -1,0 +1,14 @@
+version: 2
+
+models:
+  - name: noms_salaries
+    description: >
+      Correspondance identifiant -> prénom et nom, pour personnaliser les messages Slack.
+      Seule vue accessible au rôle slack_notifier (moindre privilège).
+    columns:
+      - name: id_salarie
+        data_tests: [unique, not_null]
+      - name: prenom
+        data_tests: [not_null]
+      - name: nom
+        data_tests: [not_null]

@@ -2,7 +2,7 @@
 
 Usage :
     uv run --env-file .env python -m projet12.qualite              # tous les contrôles
-    uv run --env-file .env python -m projet12.qualite --seulement raw
+    uv run --env-file .env python -m projet12.qualite --seulement raw geo
 
 Code de sortie : 0 si aucun échec (les avertissements sont acceptés), 1 sinon.
 Kestra s'en servira pour arrêter le pipeline avant de publier des chiffres faux.
@@ -22,16 +22,16 @@ SYMBOLES = {"pass": "✅", "warn": "⚠️ ", "fail": "❌", "erreur": "💥"}
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     logging.getLogger("soda").setLevel(logging.WARNING)   # Soda est très bavard
 
     parser = argparse.ArgumentParser(prog="python -m projet12.qualite",
                                      description="Contrôles de qualité des données (Soda).")
-    parser.add_argument("--seulement", choices=list(CONTROLES),
-                        help="Ne lancer qu'un fichier de contrôles")
+    parser.add_argument("--seulement", nargs="+", choices=list(CONTROLES),
+                        help="Ne lancer que certains fichiers de contrôles (ex. raw geo)")
     args = parser.parse_args()
 
-    a_lancer = {args.seulement: CONTROLES[args.seulement]} if args.seulement else CONTROLES
+    a_lancer = {f: CONTROLES[f] for f in args.seulement} if args.seulement else CONTROLES
     debut = datetime.now(UTC)
     resultats, erreurs = [], []
     for fichier, data_source in a_lancer.items():

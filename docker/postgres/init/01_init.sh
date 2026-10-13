@@ -33,6 +33,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
     CREATE ROLE powerbi_reader LOGIN PASSWORD '${POWERBI_PASSWORD}';
     -- Kestra : sa base interne
     CREATE ROLE kestra       LOGIN PASSWORD '${KESTRA_DB_PASSWORD}';
+    -- Consommateur Slack : lit UNIQUEMENT les noms des salariés (vue dédiée) dans dwh/notifications.noms_salaries
+    CREATE ROLE slack_notifier LOGIN PASSWORD '${SLACK_DB_PASSWORD}';
 
     -- ---------- Bases de données ----------
     CREATE DATABASE app    OWNER $POSTGRES_USER;
@@ -43,7 +45,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
     -- Personne ne se connecte par défaut à une base qui ne le concerne pas
     REVOKE ALL ON DATABASE app, dwh, kestra FROM PUBLIC;
     GRANT CONNECT ON DATABASE app    TO app_writer, debezium;
-    GRANT CONNECT ON DATABASE dwh    TO etl, powerbi_reader;
+    GRANT CONNECT ON DATABASE dwh    TO etl, powerbi_reader, slack_notifier;
     GRANT CONNECT ON DATABASE kestra TO kestra;
 EOSQL
 
@@ -106,12 +108,15 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname dwh <<-EOSQL
     CREATE SCHEMA staging;      -- dbt : nettoyage
     CREATE SCHEMA analytics;    -- dbt : marts lus par Power BI
     CREATE SCHEMA monitoring;   -- suivi des exécutions et de la volumétrie
+    CREATE SCHEMA notifications; -- dbt : vue des noms pour le consommateur Slack
 
     -- Power BI : lecture seule sur analytics et monitoring,
     -- y compris sur les tables que dbt créera plus tard
     GRANT USAGE ON SCHEMA analytics, monitoring TO powerbi_reader;
     ALTER DEFAULT PRIVILEGES IN SCHEMA analytics  GRANT SELECT ON TABLES TO powerbi_reader;
     ALTER DEFAULT PRIVILEGES IN SCHEMA monitoring GRANT SELECT ON TABLES TO powerbi_reader;
+    -- Slack : accès au schéma notifications ; le droit de lecture sur la vue est donné par dbt (config "grants" du modèle noms_salaries)
+    GRANT USAGE ON SCHEMA notifications TO slack_notifier;
 
     -- Journal des exécutions du pipeline (volumétrie + état d'exécution)
     CREATE TABLE monitoring.pipeline_runs (

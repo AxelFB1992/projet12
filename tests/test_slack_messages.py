@@ -2,7 +2,12 @@
 
 import json
 
-from projet12.slack.messages import formater_distance, formater_duree, traiter_evenement, formater_vitesse
+from projet12.slack.messages import (
+    formater_distance,
+    formater_duree,
+    formater_vitesse,
+    traiter_evenement,
+)
 
 NOMS = {43015: "Juliette Mendes"}
 

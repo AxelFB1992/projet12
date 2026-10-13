@@ -19,6 +19,7 @@ services:
       ETL_PASSWORD: ${ETL_PASSWORD}
       POWERBI_PASSWORD: ${POWERBI_PASSWORD}
       KESTRA_DB_PASSWORD: ${KESTRA_DB_PASSWORD}
+      SLACK_DB_PASSWORD: ${SLACK_DB_PASSWORD}
     # Les commandes que docker va passer en paramètre à psql après son lancement
     # wal_level=logical : indispensable pour que Debezium lise les changements
     # Plutôt que de lancer seulement 'postgres' à l'intérieur du conteneur docker, on va lancer 'postgres' avec des arguments
@@ -146,9 +147,61 @@ services:
     # Limite de mémoire RAM allooué en service (en général, les réglages internes sont déjà en dessous de ces limites)
     mem_limit: 640m
 
+  # ---------------------------------------------------------------------------
+  # Kestra : orchestration du pipeline batch (ingestion, geo, dbt, Soda)
+  # Image Kestra + uv (docker/kestra/Dockerfile). Base interne : Postgres "kestra".
+  # ---------------------------------------------------------------------------
+  kestra:
+    build: ./docker/kestra
+    image: projet12-kestra
+    container_name: p12-kestra
+    restart: unless-stopped
+    user: root
+    command: server standalone --worker-thread=2
+    environment:
+      JAVA_TOOL_OPTIONS: -Xmx768m
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/kestra
+            driverClassName: org.postgresql.Driver
+            username: kestra
+            password: ${KESTRA_DB_PASSWORD}
+            # Pas nécessaire, déjà présent dans le .env monté grâce aux commandes set ... executées dans Kestra
+            #SLACK_DB_PASSWORD: ${SLACK_DB_PASSWORD}
+        kestra:
+          server:
+            basic-auth:
+              username: ${KESTRA_ADMIN_EMAIL}
+              password: ${KESTRA_ADMIN_PASSWORD}
+          repository:
+            type: postgres
+          queue:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /app/storage
+          tasks:
+            tmp-dir:
+              path: /tmp/kestra-wd/tmp
+          url: http://localhost:8080/
+    ports:
+      - "127.0.0.1:8080:8080"     # http://localhost:8080
+    volumes:
+      - kestra_storage:/app/storage
+      - kestra_uv:/opt/uv          # Python + dépendances du projet (installés au 1er lancement)
+      - .:/projet12:ro             # le projet, en LECTURE SEULE
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 1536m
+
 # Etant donné que ce ne sont pas des chemins déjà existants (comme les montages de dossier), les volumes docker doivent être crée
 # Par conséquent, on déclare ici les volumes pour qu'ils soient crée avant d'être utilisés dans les services 
 volumes:
   pgdata:
   redpanda_data:
   debezium_data:
+  kestra_storage:
+  kestra_uv:

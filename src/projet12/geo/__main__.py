@@ -30,7 +30,7 @@ SEUILS_APERCU_M = {"WALK": 15_000, "BICYCLE": 25_000}
 
 def main() -> int:
     # On configure le logger au plus bas niveau (toutes les informations sont affichées)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stdout)
     logging.getLogger("httpx").setLevel(logging.WARNING)   # n'affiche pas les URL appelées
     # Un parseur de commande, comme pour toutes les interfaces main.py afin d'interpreter la commande et ses arguments passés en paramètre
     parser = argparse.ArgumentParser(prog="python -m projet12.geo",

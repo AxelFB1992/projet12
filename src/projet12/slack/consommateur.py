@@ -9,27 +9,43 @@ En cas d'arrêt brutal entre les deux, l'activité serait renvoyée au redémarr
 import logging
 import signal
 import time
-from pathlib import Path
 
 import httpx
-import pandas as pd
 from confluent_kafka import Consumer, KafkaError
 
+from projet12.config import connexion_notifications
 from projet12.slack.messages import traiter_evenement
 
 log = logging.getLogger("slack")
 
+#Plus nécessaire depuis que l'on va chercher les noms et prénoms des salariés directement dans le datawarehouse
+#from pathlib import Path
+
+#Plus nécessaire depuis que l'on va chercher les noms et prénoms des salariés directement dans le datawarehouse
+#import pandas as pd
+
 # Comme on l'avait vu, cette méthode permet de charger les noms des salariés dans les fichier excel (temporaire)
 # A terme, cette méthode disparatra car on ira cherché les noms directements dans le datawarehouse. 
 # Les fichiers RH sont chargés grâce à la variable FICHIER_RH de config.py depuis le méthode main() de ce repertoire (slack)
-def charger_noms(fichier_rh: Path) -> dict[int, str]:
-    """{id_salarie: "Prénom Nom"}, lu dans le fichier RH (colonnes nom/prénom seulement)."""
-    rh = pd.read_excel(fichier_rh, usecols=["ID salarié", "Nom", "Prénom"])
-    # Comme indiqué en signature, cette méthode retourne un dictionnaire de tuples (identifiant, prenom/nom) pour chaque salairé
-    return {
-        int(id_): f"{prenom} {nom}"
-        for id_, nom, prenom in zip(rh["ID salarié"], rh["Nom"], rh["Prénom"])
-    }
+
+#def charger_noms(fichier_rh: Path) -> dict[int, str]:
+#    """{id_salarie: "Prénom Nom"}, lu dans le fichier RH (colonnes nom/prénom seulement)."""
+#    rh = pd.read_excel(fichier_rh, usecols=["ID salarié", "Nom", "Prénom"])
+#    # Comme indiqué en signature, cette méthode retourne un dictionnaire de tuples (identifiant, prenom/nom) pour chaque salairé
+#    return {
+#        int(id_): f"{prenom} {nom}"
+#        for id_, nom, prenom in zip(rh["ID salarié"], rh["Nom"], rh["Prénom"])
+#    }
+
+# Remplace la méthode charger_noms(fichier_rh: Path) qui permettait de lire les noms et prénoms des salariés depuis les fichier .xsl
+# Désormais, on va chercher directement ces informations depuis la base de données dwh chargé à partir des fichiers RH
+def lire_noms_entrepot() -> dict[int, str]:
+    """{id_salarie: "Prénom Nom"}, lu dans l'entrepôt (vue notifications.noms_salaries),
+    avec le rôle slack_notifier qui n'a accès qu'à cette vue."""
+    with connexion_notifications() as conn:
+        lignes = conn.execute("SELECT id_salarie, prenom, nom FROM notifications.noms_salaries").fetchall()
+    return {id_salarie: f"{prenom} {nom}" for id_salarie, prenom, nom in lignes}
+
 
 # Envoie le message au client httpx (ici Slackà) avec un nombre de tentative en cas d'echecs
 def envoyer_slack(client: httpx.Client, url: str, texte: str, tentatives: int = 3) -> None:

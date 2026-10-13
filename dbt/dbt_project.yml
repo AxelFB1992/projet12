@@ -29,6 +29,11 @@ models:
     marts:
       +schema: analytics        # restitution : tables lues par Power BI
       +materialized: table
+    notifications:
+      +schema: notifications    # vue des noms, lue par le consommateur Slack
+      +materialized: view
+      +grants:
+        select: ['slack_notifier']
 
 # De la même manière, la description des seeds qui vont être enregistrés dans une table sql sous le format analytics
 # Ce sont des données qui ne proviennent pas de sources réelles mais qui ont un intérêt dans la phase analytique
