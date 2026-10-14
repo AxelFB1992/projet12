@@ -30,3 +30,11 @@ flowchart LR
     WAL -->|CDC| DBZ
     DBZ --> RP
     RP --> SLKPY --> SLACK
+    RP --> CHG --> RAW
+    RAW -->|"Noms / Prénoms"| SLKPY
+    XRH -->|projet12.ingestion| RAW
+    XSP -->|projet12.ingestion| RAW
+    RAW -->|adresses| GEO
+    GOOG -->|projet12.geo| GEO
+    GEO --> DBT --> ANA --> PBI
+```
