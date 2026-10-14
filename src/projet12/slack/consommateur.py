@@ -11,10 +11,11 @@ import signal
 import time
 
 import httpx
+import psycopg
 from confluent_kafka import Consumer, KafkaError
 
-from projet12.config import connexion_notifications
-from projet12.slack.messages import traiter_evenement
+from projet12.config import connexion_slack
+from projet12.slack.messages import construire_message, evenement_a_publier
 
 log = logging.getLogger("slack")
 
@@ -39,13 +40,35 @@ log = logging.getLogger("slack")
 
 # Remplace la méthode charger_noms(fichier_rh: Path) qui permettait de lire les noms et prénoms des salariés depuis les fichier .xsl
 # Désormais, on va chercher directement ces informations depuis la base de données dwh chargé à partir des fichiers RH
+#def lire_noms_entrepot() -> dict[int, str]:
+#    """{id_salarie: "Prénom Nom"}, lu dans l'entrepôt (vue notifications.noms_salaries),
+#    avec le rôle slack_notifier qui n'a accès qu'à cette vue."""
+#    with connexion_notifications() as conn:
+#        lignes = conn.execute("SELECT id_salarie, prenom, nom FROM notifications.noms_salaries").fetchall()
+#    return {id_salarie: f"{prenom} {nom}" for id_salarie, prenom, nom in lignes}
+
+# Etant donné qu'on a remplacé le schémas  notifications.noms_salaries par une vue directement sur raw
+# la méthode lire_noms_entrepot n'est plus utile et on la remplace par deux autre méthodes
+
+# Cette méthode est l'équivalente de lire_noms_entrepot mais pour lire dans la vue
 def lire_noms_entrepot() -> dict[int, str]:
-    """{id_salarie: "Prénom Nom"}, lu dans l'entrepôt (vue notifications.noms_salaries),
+    """{id_salarie: "Prénom Nom"}, lu dans la vue raw.noms_salaries (créée par l'ingestion),
     avec le rôle slack_notifier qui n'a accès qu'à cette vue."""
-    with connexion_notifications() as conn:
-        lignes = conn.execute("SELECT id_salarie, prenom, nom FROM notifications.noms_salaries").fetchall()
+    with connexion_slack() as conn:
+        lignes = conn.execute("SELECT id_salarie, prenom, nom FROM raw.noms_salaries").fetchall()
     return {id_salarie: f"{prenom} {nom}" for id_salarie, prenom, nom in lignes}
 
+# Cette méthode permet de recharger les noms à chaque fois que l'on rencontre un salarié inconnu
+def recharger_noms(noms: dict[int, str], lire=lire_noms_entrepot) -> None:
+    """Complète l'annuaire SUR PLACE depuis la vue, sans planter si elle n'existe pas encore.
+    Appelée au démarrage puis à chaque salarié inconnu (consommateur lancé avant
+    l'ingestion, nouveau salarié en cours d'année). `lire` est remplaçable dans les tests."""
+    try:
+        noms.update(lire())
+        log.info("Annuaire : %d salarié(s)", len(noms))
+    except psycopg.Error:
+        log.warning("Vue raw.noms_salaries indisponible (ingestion pas encore faite ?) : "
+                    "nouvel essai au prochain salarié inconnu")
 
 # Envoie le message au client httpx (ici Slackà) avec un nombre de tentative en cas d'echecs
 def envoyer_slack(client: httpx.Client, url: str, texte: str, tentatives: int = 3) -> None:
@@ -128,14 +151,20 @@ def consommer(bootstrap: str,topic: str,noms: dict[int, str],webhook_url: str | 
                         log.error("Erreur Kafka : %s", msg.error())
                     continue
                 # ... Et on le transmet à cette fonction qui va le formatter correctement et enregistrer le resultat sous 'texte'
-                texte = traiter_evenement(msg.value(), noms)
+                #texte = traiter_evenement(msg.value(), noms)
+                evenement = evenement_a_publier(msg.value())
                 # Si le retour de la méthode est vide, on incrémente seulement le compteur des messages ignorés
-                if texte is None:
+                #if texte is None:
+                #    ignores += 1
+                if evenement is None:
                     ignores += 1
                 else:
                 # Sinon on fait le traitement normal à savoir
                 # Soit on fait juste un affichage dans le terminal
                 # Soit on l'affiche dans le terminal et on l'envoit à Slack
+                    if evenement["id_salarie"] not in noms:   # salarié inconnu : on relit la vue
+                        recharger_noms(noms)
+                    texte = construire_message(evenement, noms)
                     if dry_run:
                         log.info("[dry-run] %s", texte)
                     else:

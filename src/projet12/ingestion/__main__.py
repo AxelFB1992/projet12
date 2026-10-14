@@ -10,7 +10,7 @@ import sys
 from projet12.config import FICHIER_RH, FICHIER_SPORT, connexion_dwh
 
 # On récuppère les référentiels écrits dans referentiels.py qui nous donne toutes les informations à récuperer et les structures de tables
-from projet12.ingestion.referentiels import SALARIES, SPORTS, charger
+from projet12.ingestion.referentiels import SALARIES, SPORTS, charger, creer_vue_noms
 
 # Comme toujours, on crée un logger qui va nous permette de récuperer les informations d'execution
 log = logging.getLogger("ingestion")
@@ -36,6 +36,8 @@ def main() -> int:
             except Exception as erreur:  # noqa: BLE001 : point d'entrée, toute erreur = code 1
                 log.error("❌ %s : échec, données précédentes conservées (%s)", ref.table, erreur)
                 return 1
+        creer_vue_noms(conn)
+        log.info("✅ raw.noms_salaries : vue des noms prête pour le consommateur Slack")
     # Si tout s'est bien passé et qu'on a réussi à inserer tous les fichiers dans la base dwh à l'aide des référentiels, on retourne 0.
     return 0
 

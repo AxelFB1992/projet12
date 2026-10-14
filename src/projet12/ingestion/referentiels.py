@@ -75,6 +75,22 @@ SPORTS = Referentiel(
         )""",
 )
 
+# Annuaire pour le consommateur Slack : uniquement l'identifiant et le nom.
+# Une vue ne copie rien : elle relit raw.salaries à chaque requête, donc elle est
+# toujours à jour. Elle s'exécute avec les droits de son propriétaire (etl) :
+# slack_notifier la lit sans aucun droit sur raw.salaries (salaires, adresses...).
+VUE_NOMS = """
+    CREATE OR REPLACE VIEW raw.noms_salaries AS
+    SELECT id_salarie, trim(prenom) AS prenom, trim(nom) AS nom
+    FROM raw.salaries"""
+
+
+def creer_vue_noms(conn: psycopg.Connection) -> None:
+    """Crée (ou remplace) la vue des noms et l'ouvre en lecture au seul rôle slack_notifier."""
+    with conn.cursor() as cur:
+        cur.execute(VUE_NOMS)
+        cur.execute("GRANT SELECT ON raw.noms_salaries TO slack_notifier")
+    conn.commit()
 
 class FichierInvalide(Exception):
     """Le fichier n'a pas la structure attendue : on refuse de le charger."""

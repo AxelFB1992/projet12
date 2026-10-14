@@ -33,7 +33,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
     CREATE ROLE powerbi_reader LOGIN PASSWORD '${POWERBI_PASSWORD}';
     -- Kestra : sa base interne
     CREATE ROLE kestra       LOGIN PASSWORD '${KESTRA_DB_PASSWORD}';
-    -- Consommateur Slack : lit UNIQUEMENT les noms des salariés (vue dédiée) dans dwh/notifications.noms_salaries
+    -- Consommateur Slack : lit UNIQUEMENT les noms des salariés (vue dédiée) dans dwh/raw.noms_salaries
     CREATE ROLE slack_notifier LOGIN PASSWORD '${SLACK_DB_PASSWORD}';
 
     -- ---------- Bases de données ----------
@@ -103,20 +103,21 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname dwh <<-EOSQL
 
     -- Schémas créés au nom du rôle etl, qui en est propriétaire
     SET ROLE etl;
-    CREATE SCHEMA raw;          -- données brutes, jamais modifiées
+    CREATE SCHEMA raw;          -- données brutes, jamais modifiées (+ la vue noms_salaries pour slack_notifier/ci-dessous)
     CREATE SCHEMA geo;          -- distances domicile-travail (Google Routes API)
     CREATE SCHEMA staging;      -- dbt : nettoyage
     CREATE SCHEMA analytics;    -- dbt : marts lus par Power BI
     CREATE SCHEMA monitoring;   -- suivi des exécutions et de la volumétrie
-    CREATE SCHEMA notifications; -- dbt : vue des noms pour le consommateur Slack
 
     -- Power BI : lecture seule sur analytics et monitoring,
     -- y compris sur les tables que dbt créera plus tard
     GRANT USAGE ON SCHEMA analytics, monitoring TO powerbi_reader;
     ALTER DEFAULT PRIVILEGES IN SCHEMA analytics  GRANT SELECT ON TABLES TO powerbi_reader;
     ALTER DEFAULT PRIVILEGES IN SCHEMA monitoring GRANT SELECT ON TABLES TO powerbi_reader;
-    -- Slack : accès au schéma notifications ; le droit de lecture sur la vue est donné par dbt (config "grants" du modèle noms_salaries)
-    GRANT USAGE ON SCHEMA notifications TO slack_notifier;
+    -- Slack : USAGE permet seulement de désigner les objets de raw ; la lecture
+    -- n'est accordée que sur la vue raw.noms_salaries (créée par l'ingestion).
+    -- Ne JAMAIS donner à slack_notifier un SELECT sur toutes les tables de raw.
+    GRANT USAGE ON SCHEMA raw TO slack_notifier;
 
     -- Journal des exécutions du pipeline (volumétrie + état d'exécution)
     CREATE TABLE monitoring.pipeline_runs (

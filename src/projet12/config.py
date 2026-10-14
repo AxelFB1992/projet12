@@ -57,9 +57,9 @@ def connexion_dwh() -> psycopg.Connection:
         password=_variable_obligatoire("ETL_PASSWORD"),
     )
 
-def connexion_notifications() -> psycopg.Connection:
+def connexion_slack() -> psycopg.Connection:
     """Connexion à l'entrepôt 'dwh' avec le rôle slack_notifier
-    (lecture seule de la vue notifications.noms_salaries, rien d'autre)."""
+    (lecture seule de la vue raw.noms_salaries, rien d'autre)."""
     return psycopg.connect(
         host=os.getenv("POSTGRES_HOST", "localhost"),
         port=int(os.getenv("POSTGRES_PORT", "5432")),

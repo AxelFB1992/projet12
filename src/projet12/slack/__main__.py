@@ -10,9 +10,7 @@ import logging
 import os
 import sys
 
-import psycopg
-
-from projet12.slack.consommateur import consommer, lire_noms_entrepot
+from projet12.slack.consommateur import consommer, recharger_noms
 
 #plus nécessaire avec l'import depuis dwh via lire_noms_entrepot
 #from projet12.config import FICHIER_RH
@@ -51,13 +49,9 @@ def main() -> int:
         return 1
 
     # Noms lus une fois au démarrage dans l'entrepôt (vue créée par dbt) --> on utilise Slack/consommateur.py/lire_noms_entrepot
-    try:
-        noms = lire_noms_entrepot()
-        log.info("Annuaire : %d salarié(s)", len(noms))
-    except psycopg.Error:
-        log.warning("Vue notifications.noms_salaries indisponible (dbt pas encore lancé ?) : "
-                    "messages sans nom ; relancer le consommateur après dbt")
-        noms = {}
+    # Et relus à chaque fois que l'on tombe sur un salarié avec un id_inconnu.
+    noms: dict[int, str] = {}
+    recharger_noms(noms)
     
     # Un message doit être consommé quant bien même le paramètre 'dry-run' est renseigné, c'est juste qu'il n'écrira pas dans slack
     consommer(

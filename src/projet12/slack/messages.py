@@ -146,20 +146,35 @@ def construire_message(evenement: dict, noms: dict[int, str], rng: random.Random
         texte += f' ("{evenement["commentaire"]}")'
     return texte
 
-# La méthode principale appelée par consommateur.py/consommer pour formatter le message
-def traiter_evenement(valeur: bytes | None, noms: dict[int, str]) -> str | None:
-    """
-    La méthode principale appelée par consommateur.py/consommer pour formatter le message :
-    Message Redpanda brut -> texte Slack, ou None s'il ne faut rien publier.
-    """
-    # Si il n'y a pas de message dans l'evenement reçu de Redpanda, on retourne None
+# De par le fait qu'on traite maintenant l'évenement en chargeant les noms d'une source externe, il fallait revoir les fonctions
+
+def evenement_a_publier(valeur: bytes | None) -> dict | None:
+    """Message Redpanda brut -> événement à publier, ou None (vide, historique, incohérent)."""
     if valeur is None:          # message vide (tombstone) : rien à faire
         return None
-    # Sinon on le depile grâce à json.loads...
     evenement = json.loads(valeur)
-    # Si il ne doit pas être publié, on ne retourne rien (Attention, cette condition n'a rien à voir avec dry-run)
-    # En effet, un message dry-run ne retourne pas rien, car il a, à la base, les caractértistiques pour être publié
-    if not doit_etre_publie(evenement):
-        return None
-    # ... Et on le formatte en le retournant grâce à la méthode construire_message (voir précedemment)
-    return construire_message(evenement, noms)
+    return evenement if doit_etre_publie(evenement) else None
+
+
+def traiter_evenement(valeur: bytes | None, noms: dict[int, str]) -> str | None:
+    """Raccourci (utilisé par les tests) : message brut -> texte Slack, ou None."""
+    evenement = evenement_a_publier(valeur)
+    return None if evenement is None else construire_message(evenement, noms)
+
+# La méthode principale appelée par consommateur.py/consommer pour formatter le message
+#def traiter_evenement(valeur: bytes | None, noms: dict[int, str]) -> str | None:
+#    """
+#    La méthode principale appelée par consommateur.py/consommer pour formatter le message :
+#    Message Redpanda brut -> texte Slack, ou None s'il ne faut rien publier.
+#    """
+#    # Si il n'y a pas de message dans l'evenement reçu de Redpanda, on retourne None
+#    if valeur is None:          # message vide (tombstone) : rien à faire
+#        return None
+#    # Sinon on le depile grâce à json.loads...
+#    evenement = json.loads(valeur)
+#    # Si il ne doit pas être publié, on ne retourne rien (Attention, cette condition n'a rien à voir avec dry-run)
+#    # En effet, un message dry-run ne retourne pas rien, car il a, à la base, les caractértistiques pour être publié
+#    if not doit_etre_publie(evenement):
+#        return None
+#    # ... Et on le formatte en le retournant grâce à la méthode construire_message (voir précedemment)
+#    return construire_message(evenement, noms)
