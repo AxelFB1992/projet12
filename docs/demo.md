@@ -1,22 +1,51 @@
 # Déroulé de la démo — POC Avantages sportifs
 
-Toutes les commandes se lancent depuis la racine du projet (`~/Projet12/projet12`),
-sauf mention contraire. Prévoir 3 terminaux : **T1** (commandes), **T2** (chargement)
-et **T3** (Slack).
+Toutes les commandes se lancent depuis la racine du projet (`~/Projet12/projet12`).
+
+Trois terminaux :
+
+| Terminal | Rôle |
+|---|---|
+| **T1** | commandes |
+| **T2** | `docker logs -f p12-chargement` : suivi du chargement dans l'entrepôt |
+| **T3** | `docker logs -f p12-slack` : suivi des messages Slack |
+
+Les consommateurs tournent dans leurs conteneurs : **Ctrl+C dans T2/T3 arrête
+seulement l'affichage**, pas le consommateur.
+
+Qui fait quoi :
+
+| Étape | Qui |
+|---|---|
+| Démarrer l'infrastructure (Postgres, Redpanda, Debezium, consommateurs) | `docker compose` |
+| Simuler Strava (historique, séances en direct, anomalies) | **à la main** : c'est la source externe |
+| Chargement dans l'entrepôt, messages Slack | **automatique** (consommateurs) |
+| Ingestion → geo → seeds → Soda → dbt → Soda | **à la main** (2A) ou **Kestra** (2B) |
+
+À chaque étape : d'abord la version manuelle, puis la version Kestra quand elle existe.
 
 ---
 
 ## 0. Avant la démo : repartir d'une base propre
 
-Les anomalies des tests précédents restent en base ; on repart de zéro.
-Le `.env` doit contenir tous les mots de passe de `.env.example` (dont `SLACK_DB_PASSWORD`).
+Le `.env` doit contenir toutes les variables de `.env.example`.
+Kestra n'est **pas** démarré ici : il n'est pas nécessaire au temps réel, et on
+économise de la RAM pendant la démo manuelle (il est lancé en 2B).
 
 ```bash
-# Arrêter d'abord les consommateurs (Ctrl+C dans T2 et T3) s'ils tournent
-docker compose down -v                # efface toutes les données Docker
-docker compose up -d postgres redpanda redpanda-console debezium
-docker compose ps                     # attendre (healthy) pour postgres et redpanda
-docker logs p12-postgres 2>&1 | grep -iE "error|initialisation"   # seule la ligne ✅ attendue
+docker compose down -v                 # efface TOUTES les données (bases, topics, Kestra)
+docker compose up -d --build postgres redpanda redpanda-console debezium chargement slack
+docker compose ps                      # postgres et redpanda : (healthy), les autres : Up
+sleep 15
+docker logs p12-postgres 2>&1 | grep -iE "error|fatal|unbound|not found|initialisation"
+# attendu : la ligne ✅ (et éventuellement "sh: locale: not found", sans importance)
+```
+
+Ouvrir T2 et T3 :
+
+```bash
+docker logs -f p12-chargement          # T2 : "En écoute sur app.public.activites..."
+docker logs -f p12-slack               # T3 : "Vue raw.noms_salaries indisponible..." (normal : pas encore d'ingestion)
 ```
 
 Contrôle du code :
@@ -27,53 +56,47 @@ uv run ruff check src tests && uv run pytest -q
 
 ---
 
-## 1. Chargements initiaux (communs aux deux démos)
+## 1. Historique Strava (12 mois)
 
-L'ordre compte : **référentiels d'abord**, puis les activités.
+Strava a déjà un historique quand notre système se branche dessus : on le génère
+**avant** le pipeline batch (sinon le contrôle Soda « des activités ont été
+chargées » échoue et le pipeline s'arrête).
 
 ```bash
-# T1 — référentiels RH et sport (Excel -> raw.salaries, raw.sports)
-uv run --env-file .env python -m projet12.ingestion
-
-# T2 — chargement Redpanda -> entrepôt (crée raw.activites, puis reste à l'écoute)
-uv run --env-file .env python -m projet12.chargement
-
-# T1 — historique de 12 mois (une seule fois : ce n'est pas une étape récurrente)
+# T1
 uv run --env-file .env python -m projet12.generation backfill --graine 42
 ```
 
-→ T2 charge ~7 900 activités (« Topic pas encore créé » avant le backfill : normal).
-Si T2 ne charge rien après une minute : Ctrl+C et le relancer.
+→ T2 charge ~7 900 activités. T3 ne publie rien : l'historique n'est jamais annoncé
+sur Slack.
 
 ---
 
-## 2A. Démo MANUELLE du pipeline batch (mêmes étapes, même ordre que Kestra)
+## 2A. Pipeline batch : démo MANUELLE
+
+Mêmes étapes, même ordre que le flow Kestra :
 
 ```bash
-# 1. Référentiels (déjà fait à l'étape 1 ; à relancer si les fichiers Excel changent)
+# 1. Référentiels RH et sport (+ vue des noms pour Slack)
 uv run --env-file .env python -m projet12.ingestion
 
 # 2. Distances domicile-bureau (Google Routes API, avec cache)
 uv run --env-file .env python -m projet12.geo
 
 # 3. Seeds dbt (paramètres + vitesses max, utilisés par Soda)
-cd dbt
-uv run --env-file ../.env dbt seed --profiles-dir .
-cd ..
+cd dbt && uv run --env-file ../.env dbt seed --profiles-dir . && cd ..
 
 # 4. Contrôles qualité des SOURCES (un échec => on ne lance pas les calculs)
 uv run --env-file .env python -m projet12.qualite --seulement raw geo
 
-# 5. Calculs et tests dbt (paramètres par défaut) ; crée aussi la vue des noms pour Slack
-cd dbt
-uv run --env-file ../.env dbt build --profiles-dir .
-cd ..
+# 5. Calculs et tests dbt
+cd dbt && uv run --env-file ../.env dbt build --profiles-dir . && cd ..
 
 # 6. Contrôles qualité des RÉSULTATS (tables lues par Power BI)
 uv run --env-file .env python -m projet12.qualite --seulement analytics
 ```
 
-Résultats à montrer :
+Résultats :
 
 ```bash
 docker exec -it p12-postgres psql -U etl -d dwh -c "
@@ -81,97 +104,68 @@ select nb_eligibles_prime, cout_prime, nb_eligibles_bien_etre, cout_bien_etre, c
 from analytics.kpi_synthese;"
 ```
 
+L'ingestion a aussi créé la vue des noms pour Slack. Droits du rôle `slack_notifier` :
+
+```bash
+docker exec -it p12-postgres psql -U slack_notifier -d dwh -c "select * from raw.noms_salaries limit 3;"   # OK
+docker exec -it p12-postgres psql -U slack_notifier -d dwh -c "select salaire_brut from raw.salaries limit 1;"  # permission denied
+```
+
 ---
 
-## 2B. Démo KESTRA du même pipeline
+## 2B. Pipeline batch : démo KESTRA
+
+Démarrer Kestra, puis importer le flow (après un `down -v`, sa base est vide) :
 
 ```bash
 docker compose up -d --build kestra
-docker logs -f p12-kestra             # attendre "Server Running", puis Ctrl+C
+docker logs -f p12-kestra              # attendre "Server Running", puis Ctrl+C
+set -a && . ./.env && set +a
+curl -s -u "$KESTRA_ADMIN_EMAIL:$KESTRA_ADMIN_PASSWORD" \
+     -X POST http://localhost:8080/api/v1/main/flows \
+     -H "Content-Type: application/x-yaml" \
+     --data-binary @kestra/flows/pipeline_avantages.yml | head -c 300; echo
+# attendu : {"id":"pipeline_avantages","namespace":"sport_data",...
 ```
 
-1. Ouvrir http://localhost:8080 (identifiants : `KESTRA_ADMIN_EMAIL` / `KESTRA_ADMIN_PASSWORD` du .env).
-2. Après un `down -v`, recréer le flow : **Flows → Create**, coller `kestra/flows/pipeline_avantages.yml`, **Save**.
-3. **Execute**, champs vides → suivre les 6 tâches (vue Gantt, logs).
+1. Ouvrir http://localhost:8080 (identifiants : `KESTRA_ADMIN_EMAIL` / `KESTRA_ADMIN_PASSWORD` du `.env`).
+2. **Flows → sport_data.pipeline_avantages → Execute**, champs vides.
+3. Suivre les tâches (vue **Gantt**, logs) : ingestion → geo → seeds → contrôles
+   des sources → dbt → contrôles des résultats.
 4. Montrer l'onglet **Triggers** : exécution planifiée chaque nuit à 2 h.
 
----
+Même résultat qu'en 2A (requête `kpi_synthese` ci-dessus). Si 2A a déjà été faite,
+Kestra refait simplement les mêmes étapes : elles sont toutes rejouables.
 
-## 2C. Consommateur Slack (après 2A ou 2B)
-
-Il affiche le prénom et le nom **issus de notre référentiel RH** (vue `notifications.noms_salaries`,
-créée par dbt), jamais ceux fournis par l'application source : c'est notre système qui contrôle
-ce qui est publié sur le Slack de l'entreprise. Rôle dédié `slack_notifier` : lecture de cette
-vue uniquement (aucun accès aux salaires, adresses, etc.).
-
-```bash
-# T3
-uv run --env-file .env python -m projet12.slack
-```
-
-→ « Annuaire : 161 salarié(s) ».
-
-Les noms sont lus **une fois au démarrage**. Lancé avant le premier `dbt build`, il démarre
-quand même (messages « Bravo Un collègue ! ») : le relancer après dbt. Idem après l'ajout de
-nouveaux salariés. Pour créer uniquement la vue des noms, sans attendre les activités :
-
-```bash
-cd dbt
-uv run --env-file ../.env dbt build --profiles-dir . --select +noms_salaries
-cd ..
-```
+> Après un `down -v`, la **première** exécution est plus longue : Kestra réinstalle
+> l'environnement Python du projet dans son volume. La lancer une fois avant la démo.
 
 ---
 
-## 3. Temps réel : une activité → un message Slack
+## 3. Temps réel : une séance → un message Slack
+
+À lancer **après** le pipeline batch (2A ou 2B) : c'est l'ingestion qui crée la vue
+des noms.
 
 ```bash
+# T1
 uv run --env-file .env python -m projet12.generation live --n 3
 ```
 
-→ 3 messages dans Slack (T3), 3 lignes chargées (T2).
-Variante « au fil de l'eau » pendant qu'on parle : `live --n 1 --intervalle 10` (Ctrl+C pour arrêter).
+→ T3 : « Annuaire : 161 salarié(s) » (premier salarié inconnu → relecture de la vue),
+puis 3 messages avec les vrais noms. T2 : 3 lignes chargées.
+
+Variante « au fil de l'eau » pendant qu'on parle : `live --n 1 --intervalle 10`
+(Ctrl+C pour arrêter la génération).
 
 ---
 
-## 4. Qualité : anomalies détectées
-
-```bash
-# Avertissements : quelques activités erronées
-uv run --env-file .env python -m projet12.generation live --n 10 --taux-anomalies 0.5
-uv run --env-file .env python -m projet12.qualite
-```
-
-→ Slack n'annonce que les activités cohérentes ; Soda signale les autres (⚠️), statut `succes`.
-
-```bash
-# Échec : beaucoup d'erreurs
-uv run --env-file .env python -m projet12.generation live --n 100 --taux-anomalies 0.8
-uv run --env-file .env python -m projet12.qualite ; echo "code de sortie : $?"
-```
-
-→ ❌, statut `echec`, code de sortie 1.
-**Version Kestra** : relancer le flow → la tâche `qualite_sources` échoue, les calculs ne sont
-pas lancés, une alerte arrive dans Slack.
-
-Historique des contrôles :
-
-```bash
-docker exec -it p12-postgres psql -U etl -d dwh -c "
-select verifie_le, table_verifiee, controle, resultat, valeur
-from monitoring.qualite_checks where resultat <> 'pass' order by verifie_le desc limit 10;"
-```
-
----
-
-## 5. Changement de paramètre : relancer le calcul
+## 4. Changement de paramètre : relancer le calcul
 
 **Manuel :**
 
 ```bash
-cd dbt
-uv run --env-file ../.env dbt build --profiles-dir . --vars '{taux_prime: 0.03, seuil_velo_km: 10}'
-cd ..
+cd dbt && uv run --env-file ../.env dbt build --profiles-dir . --vars '{taux_prime: 0.03, seuil_velo_km: 10}' && cd ..
 ```
 
 **Kestra :** **Execute** → saisir `taux_prime = 0.03`, `seuil_velo_km = 10`, le reste vide.
@@ -188,7 +182,44 @@ Revenir aux valeurs par défaut : relancer sans `--vars` (ou Kestra avec les cha
 
 ---
 
-## 6. Monitoring : volumétrie et état des exécutions
+## 5. Qualité : anomalies détectées
+
+**Avertissements** : quelques séances erronées.
+
+```bash
+uv run --env-file .env python -m projet12.generation live --n 10 --taux-anomalies 0.5
+```
+
+→ Slack n'annonce que les séances cohérentes.
+
+- **Manuel :** `uv run --env-file .env python -m projet12.qualite` → anomalies signalées (⚠️), statut `succes`.
+- **Kestra :** **Execute** → les contrôles des sources signalent les anomalies, le pipeline va jusqu'au bout.
+
+**Échec** : beaucoup d'erreurs.
+
+```bash
+uv run --env-file .env python -m projet12.generation live --n 100 --taux-anomalies 0.8
+```
+
+- **Manuel :** `uv run --env-file .env python -m projet12.qualite ; echo "code de sortie : $?"`
+  → ❌, statut `echec`, code de sortie 1.
+- **Kestra :** **Execute** → la tâche `qualite_sources` **échoue**, les calculs ne sont
+  pas lancés (on ne publie pas de résultats faux), une **alerte arrive dans Slack**.
+
+Historique des contrôles :
+
+```bash
+docker exec -it p12-postgres psql -U etl -d dwh -c "
+select verifie_le, table_verifiee, controle, resultat, valeur
+from monitoring.qualite_checks where resultat <> 'pass' order by verifie_le desc limit 10;"
+```
+
+> Ces anomalies restent en base (et bloquent désormais le pipeline) : pour une
+> nouvelle répétition, repartir de l'étape 0.
+
+---
+
+## 6. Monitoring : état des exécutions et volumétrie
 
 ```bash
 docker exec -it p12-postgres psql -U etl -d dwh -c "
@@ -196,4 +227,44 @@ select etape, statut, count(*) as executions, sum(nb_lignes) as lignes, max(fin)
 from monitoring.pipeline_runs group by 1, 2 order by 1;"
 ```
 
-Redpanda Console (topics, messages, retard des consommateurs) : http://localhost:8085
+Temps réel : chaque consommateur est actif et à jour (`MEMBERS 1`, `LAG 0`) :
+
+```bash
+docker exec -it p12-redpanda rpk group describe dwh-loader
+docker exec -it p12-redpanda rpk group describe slack-notifier
+```
+
+- Kestra : onglet **Executions** (historique des exécutions, durées, échecs).
+- Redpanda Console (topics, messages, consommateurs) : http://localhost:8085
+- Power BI : **Accueil → Actualiser**, pages Synthèse et Monitoring.
+
+---
+
+## 7. Arrêter
+
+```bash
+docker compose stop kestra # libère la RAM de Kestra, le reste continue
+docker compose stop        # arrête tout, données conservées (reprise : docker compose start)
+docker compose down        # supprime les conteneurs, données conservées (volumes)
+docker compose down -v     # supprime aussi les données : retour à zéro
+```
+
+---
+
+## Annexe — Commandes utiles
+
+```bash
+# Mettre à jour le flow Kestra après modification du fichier (il existe déjà)
+set -a && . ./.env && set +a
+curl -s -u "$KESTRA_ADMIN_EMAIL:$KESTRA_ADMIN_PASSWORD" \
+     -X PUT http://localhost:8080/api/v1/main/flows/sport_data/pipeline_avantages \
+     -H "Content-Type: application/x-yaml" \
+     --data-binary @kestra/flows/pipeline_avantages.yml | head -c 300; echo
+
+# Reconstruire l'image des consommateurs après une modification du code
+docker compose up -d --build chargement slack
+
+# Dernières lignes d'un consommateur, ou des deux à la fois
+docker logs --tail 20 p12-slack
+docker compose logs -f chargement slack
+```
