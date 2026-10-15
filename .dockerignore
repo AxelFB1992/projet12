@@ -1,0 +1,17 @@
+# Ce qui n'entre JAMAIS dans une image Docker : secrets, données RH, fichiers locaux.
+# (Le Dockerfile ne copie que pyproject.toml, uv.lock, src/ et un seed :
+#  ce fichier est une sécurité supplémentaire en cas d'erreur future.)
+.env
+.env.*
+!.env.example
+data/
+**/*.xlsx
+*.pbix
+.venv/
+.git/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+dbt/target/
+dbt/logs/
+notebooks/

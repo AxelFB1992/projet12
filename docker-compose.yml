@@ -197,6 +197,51 @@ services:
         condition: service_healthy
     mem_limit: 1536m
 
+  # ---------------------------------------------------------------------------
+  # Consommateurs temps réel : services toujours actifs, relancés par Docker
+  # s'ils s'arrêtent. Même image (docker/app/Dockerfile), commande différente.
+  # Logs : docker logs -f p12-chargement / docker logs -f p12-slack
+  # ---------------------------------------------------------------------------
+  chargement:
+    build:
+      context: .
+      dockerfile: docker/consumers/Dockerfile
+    image: projet12-consumers
+    container_name: p12-chargement
+    restart: unless-stopped
+    command: ["python", "-m", "projet12.chargement"]
+    environment:
+      # Adresses vues DEPUIS le réseau Docker (et non depuis ta machine)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      KAFKA_BOOTSTRAP: redpanda:9092
+      ETL_PASSWORD: ${ETL_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    mem_limit: 256m
+
+  slack:
+    image: projet12-consumers   # même image, construite par le service chargement/ à ne pas reconstruire une deuxième fois
+    pull_policy: never          # ne pas la chercher sur Docker Hub : elle est locale
+    container_name: p12-slack
+    restart: unless-stopped
+    command: ["python", "-m", "projet12.slack"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      KAFKA_BOOTSTRAP: redpanda:9092
+      SLACK_DB_PASSWORD: ${SLACK_DB_PASSWORD}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    mem_limit: 256m
+
 # Etant donné que ce ne sont pas des chemins déjà existants (comme les montages de dossier), les volumes docker doivent être crée
 # Par conséquent, on déclare ici les volumes pour qu'ils soient crée avant d'être utilisés dans les services 
 volumes:
