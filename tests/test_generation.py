@@ -9,7 +9,7 @@ from projet12.config import FICHIER_RH, FICHIER_SPORT
 from projet12.generation.generateur import (
     TZ,
     Salarie,
-    charger_salaries,
+    charger_utilisateurs,
     simuler_historique_seances,
     simuler_n_seances,
 )
@@ -73,5 +73,5 @@ def test_live_se_termine_maintenant():
 
 @pytest.mark.skipif(not FICHIER_RH.exists(), reason="fichiers RH absents")
 def test_tous_les_sports_du_fichier_rh_ont_un_profil():
-    sports = {s.sport for s in charger_salaries(FICHIER_RH, FICHIER_SPORT) if s.sport}
+    sports = {s.sport for s in charger_utilisateurs(FICHIER_RH, FICHIER_SPORT) if s.sport}
     assert sports <= ACTIVITES_PAR_SPORT.keys()

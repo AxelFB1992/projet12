@@ -25,7 +25,7 @@ from projet12.config import FICHIER_RH, FICHIER_SPORT, connexion_app
 from projet12.generation.ecriture import compter_par_source, inserer_seances
 from projet12.generation.generateur import (
     TZ,
-    charger_salaries,
+    charger_utilisateurs,
     simuler_anomalie,
     simuler_historique_seances,
     simuler_n_seances,
@@ -44,7 +44,7 @@ def commande_backfill(args: argparse.Namespace) -> int:
     - L'écrire dans la base de données grâce à inserer_seances de ecriture.py
     - Résumer les données générées en faisant une synthèse par salarié
     """
-    salaries = charger_salaries(FICHIER_RH, FICHIER_SPORT)
+    salaries = charger_utilisateurs(FICHIER_RH, FICHIER_SPORT)
     log.info("%d salariés chargés depuis les fichiers RH", len(salaries))
 
     # On se connecte à la base de données grâce à la méthode connexion_app() du fichier config.py qui retourne un objet de type connexion (conn)
@@ -95,8 +95,8 @@ def commande_live(args: argparse.Namespace) -> int:
     - Boucler sur la génération live des activités si l'argument "--intervalle" a été renseigné
     """
 
-    # On charge les informations de toutes les salariés via la méthode charger_salaries de generateur.py
-    salaries = charger_salaries(FICHIER_RH, FICHIER_SPORT)
+    # On charge les informations de toutes les salariés via la méthode charger_utilisateurs de generateur.py
+    salaries = charger_utilisateurs(FICHIER_RH, FICHIER_SPORT)
     rng = random.Random()
 
     with connexion_app() as conn:

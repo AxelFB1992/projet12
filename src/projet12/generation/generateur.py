@@ -52,7 +52,7 @@ class Seance:
 # ---------------------------------------------------------------------------
 # Lecture des fichiers RH
 # ---------------------------------------------------------------------------
-def charger_salaries(fichier_rh: Path, fichier_sport: Path) -> list[Salarie]:
+def charger_utilisateurs(fichier_rh: Path, fichier_sport: Path) -> list[Salarie]:
     """Croise le fichier RH (date d'embauche) et le fichier sport (sport déclaré).
     Seules les colonnes utiles sont lues : pas de salaire ni d'adresse ici."""
     #On ne garde que les informations qui nous intéressent
