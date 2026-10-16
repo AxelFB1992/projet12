@@ -9,9 +9,11 @@ architecture de données »).
 
 ### Contexte
 
-**Sport Data Solution** est une entreprise basée à Lattes (1362 Av. des Platanes, 34970 Lattes),
-spécialisée dans les données sportives. Elle compte **161 salariés**, dont une partie pratique
-une activité physique régulière, et parfois se rend au bureau à pied ou à vélo.
+**Sport Data Solution** est une entreprise basée à Lattes (1362 Av. des Platanes, 34970 Lattes).
+Son activité se concentre sur le **développement de solutions de monitoring et d'analyse de
+performance pour des sportifs amateurs et semi-professionnels**. Elle compte **161 salariés**,
+dont une partie pratique une activité physique régulière, et parfois se rend au bureau à pied
+ou à vélo.
 
 La direction souhaite **encourager la pratique sportive** de ses salariés avec deux avantages :
 
@@ -36,7 +38,7 @@ Les données disponibles :
 
 Réaliser un **POC (Proof of Concept)** démontrant la faisabilité technique d'un système qui :
 
-1. collecte les données RH, sportives et les activités ;
+1. collecte les données RH, sportives et les activités en continu ;
 2. vérifie les déclarations de trajet (distance domicile-bureau calculée avec l'API **Google Maps / Routes**) ;
 3. calcule automatiquement les avantages et leur coût, avec des paramètres modifiables ;
 4. publie un message Slack pour chaque nouvelle activité ;
@@ -50,6 +52,8 @@ Réaliser un **POC (Proof of Concept)** démontrant la faisabilité technique d'
 
 | Idée de la direction | Objectif du POC |
 |---|---|
+| Récupérer les données sportives des salariés | **Générer des activités simulées** pour constituer un historique (sans application externe), ou **collecter les données sportives** d'une application de type Strava (avec application externe) |
+| Conserver les données sportives des salariés | **Charger et stocker** les données reçues (génération ou application externe) dans une base de données **persistante et sécurisée** |
 | Récompenser les trajets sportifs | Calculer l'éligibilité et le montant de la prime, en **vérifiant la distance** domicile-bureau de chaque déclaration |
 | Récompenser la pratique régulière | Compter les activités valides sur 12 mois et attribuer les journées bien-être |
 | Maîtriser le budget | Chiffrer le coût total des avantages, et pouvoir **simuler d'autres paramètres** (taux, seuils, nombre d'activités) |
@@ -64,12 +68,14 @@ Réaliser un **POC (Proof of Concept)** démontrant la faisabilité technique d'
 3. **Charger** les activités dans un entrepôt de données (*data warehouse*).
 4. **Publier** un message Slack par activité cohérente, avec le nom du salarié.
 5. **Ingérer** les référentiels RH et sportif.
-6. **Calculer** les distances domicile-bureau avec Google Routes API (avec cache).
-7. **Contrôler** la qualité des sources, puis des résultats (Soda).
-8. **Transformer** les données et calculer les avantages (dbt), avec historique des simulations de paramètres.
-9. **Orchestrer** le pipeline batch (Kestra) : exécution chaque nuit, ou à la demande avec d'autres paramètres, et alerte Slack en cas d'échec.
-10. **Superviser** : chaque étape trace son exécution et sa volumétrie dans l'entrepôt.
-11. **Restituer** les résultats dans un rapport Power BI.
+6. **Conserver** les données de manière organisée sur une période de temps fixée (par exemple 12 mois).
+7. **Calculer** les distances domicile-bureau avec Google Routes API (avec cache).
+8. **Contrôler** la qualité des sources, puis des résultats (Soda).
+9. **Transformer** les données et calculer les avantages (dbt), avec historique des simulations de paramètres.
+10. **Tester** le mécanisme des transformations dbt et les résultats produits (tests dbt).
+11. **Orchestrer** le pipeline batch (Kestra) : exécution chaque nuit, ou à la demande avec d'autres paramètres, et alerte Slack en cas d'échec.
+12. **Superviser** : chaque étape trace son exécution et sa volumétrie dans l'entrepôt.
+13. **Restituer** les résultats dans un rapport Power BI.
 
 ### 1.3 Points d'attention
 
@@ -83,9 +89,9 @@ Réaliser un **POC (Proof of Concept)** démontrant la faisabilité technique d'
 
 **Disponibilité et fiabilité**
 - Les services temps réel tournent en continu et sont **relancés automatiquement** par Docker en cas d'arrêt.
-- Garantie **at-least-once** : un message n'est validé qu'après traitement. Le chargement est **idempotent** (*upsert*) : un message reçu deux fois ne crée pas de doublon.
-- Toutes les étapes batch sont **rejouables** à volonté.
-- Le contrôle qualité des sources **bloque les calculs** en cas d'échec : aucun résultat faux n'est publié.
+- Garantie **at-least-once** (« au moins une fois ») : chaque consommateur ne signale à Redpanda qu'il a lu un message (il *valide* sa position de lecture, ou *offset*) qu'**après** l'avoir entièrement traité, c'est-à-dire après l'écriture dans `raw.activites` pour le chargement, ou après l'envoi du message Slack. S'il s'arrête avant, le message lui est redonné au redémarrage : aucune activité n'est perdue.
+- Le chargement est **idempotent** (*upsert* sur l'identifiant d'activité) : un message reçu deux fois ne crée pas de doublon dans l'entrepôt.
+- Les **contrôles qualité Soda** des sources (`raw` : activités, salariés, sports ; `geo` : distances) sont exécutés **avant** les calculs dbt (éligibilité, montants des avantages, KPI). En cas d'échec, le pipeline s'arrête : les tables lues par Power BI ne sont pas recalculées et aucun résultat faux n'est publié.
 
 **Compatibilité avec les API**
 - **Google Routes API** (`computeRouteMatrix`) : appels par lots, *field mask* pour limiter le coût, **cache en base** pour ne pas rappeler l'API à chaque exécution. La clé est restreinte à la seule Routes API.
@@ -111,14 +117,14 @@ orchestré par Kestra).*
 
 | Service | Version | Rôle |
 |---|---|---|
-| PostgreSQL | 16 (alpine) | Bases `app` (source simulée), `dwh` (entrepôt) et `kestra` (base interne de Kestra) |
-| Debezium Server | 3.0 | Capture des changements (CDC) dans le journal de PostgreSQL (WAL) |
-| Redpanda | 24.3 | Bus de messages compatible Kafka |
-| Redpanda Console | 2.8 | Interface web : topics, messages, groupes de consommateurs |
-| Kestra | 1.3 | Orchestration du pipeline batch |
+| PostgreSQL | 16 (alpine) | Bases de données `app` (source simulée), `dwh` (entrepôt) et `kestra` (base interne de Kestra) |
+| Debezium Server | 3.0 | Capture des changements (CDC) dans le journal de PostgreSQL (WAL) associé à la base de données `app` |
+| Redpanda | 24.3 | Plateforme de streaming de messages compatible Kafka |
+| Redpanda Console | 2.8 | Interface web de Redpanda : topics, messages, groupes de consommateurs |
 | dbt (dbt-postgres) | 1.12 / 1.11 | Transformations SQL et tests |
 | Soda Core | 3.5 | Contrôles de qualité des données |
 | Power BI Desktop | — | Rapport de restitution |
+| Kestra | 1.3 | Orchestration du pipeline batch |
 | Google Routes API | v2 | Distances domicile-bureau |
 | Slack | — | Messages d'émulation et alertes |
 
@@ -126,17 +132,17 @@ orchestré par Kestra).*
 
 | Composant | Langage | Rôle |
 |---|---|---|
+| `docker/` | Dockerfile, .sh et .properties | Images Kestra et consommateurs (chargement et slack), initialisation de PostgreSQL et configuration de Debezium |
+| `src/projet12/chargement` | Python | Consommateur Redpanda → entrepôt (`raw.activites`) |
+| `src/projet12/slack` | Python | Consommateur Redpanda → messages Slack |
 | `src/projet12/generation` | Python | Simulation de l'application Strava (historique, live, anomalies) |
 | `src/projet12/ingestion` | Python | Ingestion des fichiers RH et sportif + vue des noms pour Slack |
 | `src/projet12/geo` | Python | Distances domicile-bureau (Google Routes API, cache) |
-| `src/projet12/qualite` | Python | Lancement des contrôles Soda et traçabilité des résultats |
-| `src/projet12/chargement` | Python | Consommateur Redpanda → entrepôt (`raw.activites`) |
-| `src/projet12/slack` | Python | Consommateur Redpanda → messages Slack |
-| `dbt/models/staging` | SQL | Nettoyage et règles de validité (vues) |
+| `src/projet12/qualite` | Python | Lancement des contrôles Soda (fichiers `.yml` présents dans `soda/checks`) et traçabilité des résultats |
+| `soda/checks` | YAML | 35 contrôles de qualité |
+| `dbt/models/staging` | SQL | Préparation des données brutes (vues) : typage, nettoyage, indicateurs dérivés et règle de validité des activités |
 | `dbt/models/marts` | SQL | Calcul des avantages, KPI et historique (tables) |
 | `kestra/flows` | YAML | Flow d'orchestration du pipeline batch |
-| `soda/checks` | YAML | 35 contrôles de qualité |
-| `docker/` | Dockerfile, SQL | Images (Kestra, consommateurs) et initialisation de PostgreSQL |
 
 ### 2.2 Arborescence
 
@@ -149,7 +155,7 @@ projet12/
 ├── data/raw/                    # fichiers Excel RH et sportif (NON versionnés)
 ├── docker/
 │   ├── postgres/init/01_init.sh # bases, rôles, droits, schémas, publication CDC
-│   ├── debezium/application.properties
+│   ├── debezium/application.properties  # configuration de Debezium (source, slot, destination)
 │   ├── kestra/Dockerfile        # image Kestra + uv
 │   └── consumers/Dockerfile     # image des consommateurs temps réel
 ├── src/projet12/
@@ -181,21 +187,29 @@ projet12/
 
 | Répertoire | Contenu et traitements |
 |---|---|
-| `docker/` | Images Docker et script d'initialisation de PostgreSQL : création des bases `app`, `dwh` et `kestra`, des rôles et de leurs droits, des schémas de l'entrepôt et de la publication lue par Debezium. |
+| `docker/` | Images Docker, script d'initialisation de PostgreSQL (création des bases `app`, `dwh` et `kestra`, des rôles et de leurs droits, des schémas de l'entrepôt et de la publication lue par Debezium) et fichier de configuration de Debezium. |
 | `src/projet12/` | Le code Python, un sous-paquet par traitement, lancé par `python -m projet12.<module>`. `config.py` centralise la lecture du `.env` et les connexions. |
 | `dbt/` | Les transformations SQL : les **seeds** (paramètres métier versionnés), le **staging** (nettoyage, règles de validité) et les **marts** (résultats lus par Power BI), avec leurs tests. |
 | `soda/` | La configuration et les 35 contrôles de qualité, répartis par schéma. |
 | `kestra/` | La définition du pipeline batch (tâches, paramètres, planification, alerte). |
-| `tests/` | Les tests unitaires des modules Python (génération, ingestion, geo, chargement, messages Slack), sans base de données. |
+| `tests/` | Les tests unitaires des modules Python (génération, ingestion, geo, chargement, messages Slack). Ils testent la logique du code de façon isolée : ils se lancent **sans démarrer aucun service** (ni PostgreSQL, ni Redpanda, ni appel à Google ou Slack), les accès extérieurs étant remplacés par de fausses fonctions ou de petits jeux de données écrits dans les tests. |
 | `docs/` | La documentation : démo, guide Power BI, schéma. |
 
-**Schémas de la base `dwh`**
+**Schémas des bases `app` et `dwh`**
+
+Base `app` (source simulée, l'équivalent de l'application Strava) :
+
+| Schéma | Contenu | Écrit par |
+|---|---|---|
+| `public` | `activites` (une ligne par séance), lue par Debezium via la publication `dbz_activites` | generation |
+
+Base `dwh` (entrepôt de données) :
 
 | Schéma | Contenu | Écrit par |
 |---|---|---|
 | `raw` | données brutes : `activites`, `salaries`, `sports` + vue `noms_salaries` | chargement, ingestion |
 | `geo` | `distances_domicile_travail` | geo |
-| `staging` | vues de nettoyage | dbt |
+| `staging` | vues qui préparent les données brutes pour les calculs : typage, suppression des espaces, correction des libellés (« Runing »), indicateurs dérivés (âge, durée, vitesse, trajet sportif ou non) et règle de validité des activités (`est_valide`) ; paramètres en vigueur (`stg_parametres`) | dbt |
 | `analytics` | `activites`, `avantages_salaries`, `kpi_synthese`, `historique_kpi` + seeds | dbt |
 | `monitoring` | `pipeline_runs`, `qualite_checks` | toutes les étapes |
 
@@ -233,20 +247,21 @@ uv sync --no-default-groups               # socle seul (image des consommateurs)
 ### 3.1 Services conteneurisés lancés par Docker (en continu)
 
 **PostgreSQL** (`p12-postgres`)
-- Héberge trois bases : `app` (source simulée, rôle `app_writer`), `dwh` (entrepôt, rôle `etl`), `kestra`.
-- Configuré avec `wal_level=logical` : son journal de transactions (WAL) peut être lu par Debezium.
 - Initialisé par `docker/postgres/init/01_init.sh` au premier démarrage : rôles, droits, schémas, publication `dbz_activites`.
-
-**Redpanda** (`p12-redpanda`) et **Redpanda Console** (`p12-redpanda-console`)
-- Bus de messages compatible Kafka, plus léger (un seul binaire, pas de JVM ni de ZooKeeper).
-- Topic `app.public.activites` : une activité = un message JSON.
-- Chaque groupe de consommateurs garde sa position de lecture (*offset*) : un consommateur arrêté reprend où il s'était arrêté.
-- Console web sur http://localhost:8085.
+- Configuré avec `wal_level=logical` : son journal de transactions (WAL) peut être lu par Debezium.
+- Héberge trois bases : `app` (source simulée, rôle `app_writer`), `dwh` (entrepôt, rôle `etl`), `kestra`.
 
 **Debezium Server** (`p12-debezium`)
-- Lit en continu le WAL de la base `app` (slot de réplication, plugin `pgoutput`).
-- Publie chaque insertion dans Redpanda. Après un instantané initial de la table, il ne l'interroge plus : il suit le journal (pas de requêtes répétées).
+- Lit en continu le WAL de la base `app` via la publication `dbz_activites` (qui limite la lecture à la table `activites`) et un slot de réplication (plugin `pgoutput`).
+- Publie chaque insertion dans Redpanda. Après un *snapshot* initial de la table (copie de son contenu au premier démarrage), il ne l'interroge plus : il suit le journal (pas de requêtes répétées).
 - Conserve sa position dans un volume : rien n'est perdu en cas de redémarrage.
+
+**Redpanda** (`p12-redpanda`) et **Redpanda Console** (`p12-redpanda-console`)
+- Plateforme de streaming compatible Kafka, plus légère (un seul binaire, pas de JVM ni de ZooKeeper).
+- Topic `app.public.activites` : une activité = un message JSON.
+- Deux groupes de consommateurs lisent ce topic indépendamment : `dwh-loader` (chargement dans l'entrepôt) et `slack-notifier` (messages Slack).
+- Chaque groupe de consommateurs garde sa propre position de lecture (*offset*) : un consommateur arrêté reprend où il s'était arrêté, sans effet sur l'autre.
+- Console web sur http://localhost:8085.
 
 **Consommateur de chargement** (`p12-chargement`, module `projet12.chargement`)
 - Groupe `dwh-loader`, lecture depuis le début du topic.
@@ -271,9 +286,9 @@ uv sync --no-default-groups               # socle seul (image des consommateurs)
 | 1 | `projet12.generation` | **Source externe simulée** (non orchestrée par Kestra). `backfill` : 12 mois d'historique (~7 900 séances) ; `live` : séances en direct, avec option `--taux-anomalies`. Écrit dans `app.public.activites` avec le rôle `app_writer`. |
 | 2 | `projet12.ingestion` | Lit les deux fichiers Excel, valide leur **structure** (colonnes, identifiants vides ou en double), recharge `raw.salaries` et `raw.sports` en une transaction (un fichier invalide n'écrase jamais des données correctes), puis crée la vue `raw.noms_salaries` ouverte au seul rôle `slack_notifier`. |
 | 3 | `projet12.geo` | Calcule la distance domicile-bureau des salariés au trajet sportif (Google Routes API, mode marche ou vélo). Seuls les trajets nouveaux ou modifiés sont calculés (cache). Écrit `geo.distances_domicile_travail`. |
-| — | `dbt seed` | Charge les paramètres métier (`parametres.csv`) et les vitesses maximales (`vitesses_max.csv`) dans `analytics`. |
+| 3/4 | `dbt seed` | Charge les paramètres métier (`parametres.csv`) et les vitesses maximales (`vitesses_max.csv`) dans `analytics`. |
 | 4 | `projet12.qualite --seulement raw geo` | Contrôles Soda des **sources**. Un échec arrête le pipeline. |
-| 5 | `dbt/models/staging` | Vues de nettoyage : typage, `trim`, calcul de la durée et de la vitesse, règle `est_valide` (cohérence des dates, distance, vitesse plausible). Les paramètres peuvent être surchargés par `--vars`. |
+| 5 | `dbt/models/staging` | Vues de préparation : typage, `trim`, calcul de la durée et de la vitesse, règle `est_valide` (cohérence des dates, distance, vitesse plausible). Les paramètres peuvent être surchargés par `--vars`. |
 | 6 | `dbt/models/marts` | Tables de résultats : éligibilité et coût des avantages par salarié, synthèse des KPI, historique des simulations (une ligne par exécution). |
 | 7 | `projet12.qualite --seulement analytics` | Contrôles Soda des **résultats** lus par Power BI. |
 
@@ -288,6 +303,22 @@ uv sync --no-default-groups               # socle seul (image des consommateurs)
 - **Soda** : 35 contrôles avec seuils d'avertissement et d'échec (volumétrie, fraîcheur, doublons, valeurs autorisées, intégrité référentielle, cohérence des dates et des vitesses…). Résultats enregistrés dans `monitoring.qualite_checks`.
 - **Power BI** : rapport en mode Importer, connecté avec le rôle `powerbi_reader` (lecture seule de `analytics` et `monitoring`). Pages : synthèse des coûts, contrôle des déclarations, pratique sportive, simulation de paramètres, monitoring. Voir [docs/powerbi.md](docs/powerbi.md).
 
+> **Tests dbt ou contrôles Soda ?** Les deux exécutent des requêtes SQL sur les données, et
+> certains contrôles se recoupent (unicité de `id_salarie`, par exemple). Leur rôle diffère :
+>
+> | | Tests dbt | Contrôles Soda |
+> |---|---|---|
+> | Rôle | Valider les données **au moment où dbt les transforme** : garde-fous liés au build | **Surveiller** la qualité des données dans la durée, indépendamment de dbt |
+> | Périmètre | Sources déclarées, seeds et modèles construits par dbt | Toutes les tables, y compris celles que dbt ne produit pas (`geo`) |
+> | Quand | Pendant `dbt build`, juste après chaque modèle | Avant les calculs (`raw`, `geo`) et après (`analytics`), ou à tout moment |
+> | Résultat | Réussi / avertissement / échec ; un échec bloque les modèles en aval | Métriques (volumétrie, fraîcheur, % d'anomalies) avec seuils d'avertissement et d'échec ; code de sortie qui arrête Kestra |
+> | Historique | Dernière exécution (`target/`) | Chaque résultat conservé dans `monitoring.qualite_checks` |
+>
+> Exemples : `assert_montant_prime_correct` (dbt) vérifie que la prime vaut bien 5 % du salaire
+> des éligibles ; « distance comprise entre 0 et 300 km » (Soda) échoue au-delà de 1 % de séances
+> hors bornes. En résumé : **dbt garantit ce qu'il produit, Soda surveille ce qui entre et ce qui
+> sort**.
+
 ---
 
 ## Partie 4 — Utilisation de l'application
@@ -298,7 +329,7 @@ uv sync --no-default-groups               # socle seul (image des consommateurs)
 - Docker (Docker Desktop + WSL2 sous Windows), avec environ 6 Go de RAM disponibles pour l'ensemble des services ;
 - [uv](https://docs.astral.sh/uv/getting-started/installation/), qui installe lui-même Python 3.12 ;
 - une clé **Google Maps Platform** avec la Routes API activée (clé restreinte à cette API) ;
-- un **webhook entrant Slack** ;
+- un **webhook entrant Slack** (*Incoming Webhook*) : une URL secrète, créée dans une application Slack de l'espace de travail et associée au canal de publication. Elle suffit à publier : aucune autre clé d'API Slack n'est nécessaire ;
 - les fichiers `donnees_rh.xlsx` et `donnees_sportives.xlsx`, fournis séparément (non versionnés).
 
 **Installation**
@@ -319,10 +350,9 @@ cp .env.example .env
 # 3. Environnement Python et vérification du code
 uv sync
 uv run ruff check src tests && uv run pytest -q
-
-# 4. Construction des images
-docker compose build
 ```
+
+Les images Docker sont construites au premier démarrage des services (étape 0 de la démo).
 
 > Le fichier `.env` contient des secrets : il ne doit jamais être commité, ni envoyé par
 > e-mail ou messagerie.
@@ -334,13 +364,13 @@ Le déroulé complet, commande par commande et avec les résultats attendus, est
 
 | Étape | Contenu |
 |---|---|
-| 0 | Démarrage des services temps réel (sans Kestra) |
-| 1 | Historique Strava (backfill) |
+| 0 | Démarrage des services conteneurisés (sans Kestra) |
+| 1 | Génération historique Strava (backfill) |
 | 2A / 2B | Pipeline batch, à la main ou avec Kestra |
-| 3 | Temps réel : une séance → un message Slack |
+| 3 | Génération temps réel : une séance → un message Slack |
 | 4 | Changement de paramètre et comparaison des coûts |
-| 5 | Anomalies : filtrage Slack, avertissements puis blocage du pipeline et alerte |
-| 6 | Monitoring |
+| 5 | Tests avec anomalies : filtrage Slack immédiat et contrôles qualité via Soda (sur la base `dwh`) : avertissements, puis blocage du pipeline et alerte |
+| 6 | Monitoring des exécutions et de la volumétrie : schéma `monitoring` de la base `dwh` (`pipeline_runs`, `qualite_checks`), positions de lecture des consommateurs dans Redpanda, historique des exécutions dans Kestra |
 | 7 | Arrêt |
 
 ### 4.3 Fonctionnement global
@@ -349,14 +379,14 @@ Le déroulé complet, commande par commande et avec les résultats attendus, est
 |---|---|
 | `docker compose up -d --build postgres redpanda redpanda-console debezium chargement slack` | PostgreSQL démarre (et s'initialise s'il est vide), puis Redpanda. Debezium se connecte au WAL de `app`. Les deux consommateurs s'abonnent au topic et attendent les messages. |
 | `python -m projet12.generation backfill` | Des séances sont insérées dans `app.public.activites`. Debezium les capte et les publie dans Redpanda. Le chargement les écrit dans `raw.activites`. Slack les ignore (historique). |
-| `python -m projet12.ingestion` | Les fichiers Excel sont validés et chargés dans `raw.salaries` et `raw.sports`. La vue des noms est créée. |
+| `python -m projet12.ingestion` | Les fichiers Excel sont validés et chargés dans `raw.salaries` et `raw.sports`. La vue des noms des salariés (`raw.noms_salaries`) est créée spécifiquement pour Slack. |
 | `python -m projet12.geo` | Les adresses des salariés au trajet sportif sont envoyées à Google Routes API. Les distances sont mises en cache dans `geo`. |
 | `dbt seed` | Les paramètres et les vitesses maximales sont chargés dans `analytics`. |
 | `python -m projet12.qualite --seulement raw geo` | Soda contrôle les sources. Le code de sortie 1 en cas d'échec arrête Kestra. |
 | `dbt build` | dbt crée les vues de staging, calcule les tables de résultats et exécute ses tests. Une ligne est ajoutée à l'historique des KPI. |
-| `python -m projet12.qualite --seulement analytics` | Soda contrôle les résultats lus par Power BI. |
-| Kestra **Execute** | Les six instructions précédentes, enchaînées et tracées, avec les paramètres du formulaire et une alerte Slack en cas d'échec. |
-| `python -m projet12.generation live` | Une séance est insérée, captée, puis chargée dans l'entrepôt **et** annoncée sur Slack, en quelques secondes. |
+| `python -m projet12.qualite --seulement analytics` | Soda contrôle les résultats des transformations obtenus par dbt dans le schéma `analytics` (tables lues par Power BI). |
+| Kestra **Execute** | Les six instructions précédentes, enchaînées et tracées, avec les paramètres saisis dans le formulaire (qui remplacent les valeurs par défaut du seed `parametres`) et une alerte Slack en cas d'échec. |
+| `python -m projet12.generation live --n N` | N séances sont insérées, captées, puis chargées dans l'entrepôt **et** annoncées sur Slack, en quelques secondes. |
 | Power BI **Actualiser** | Le rapport relit `analytics` et `monitoring`. |
 
 Chaque étape écrit une ligne dans `monitoring.pipeline_runs` (étape, début, fin, statut,
@@ -375,23 +405,24 @@ solutions ont été essayées :
 2. une vue créée par dbt dans un schéma dédié `notifications` : sécurisée, mais elle imposait de lancer dbt avant le consommateur, et ajoutait un sixième schéma ;
 3. **solution retenue** : une vue `raw.noms_salaries` (identifiant, prénom, nom), créée par l'ingestion et ouverte au seul rôle `slack_notifier`. Une vue s'exécute avec les droits de son propriétaire : Slack lit trois colonnes sans aucun droit sur `raw.salaries`. Le consommateur relit l'annuaire quand il rencontre un salarié inconnu, ce qui supprime toute contrainte d'ordre de démarrage.
 
-**Mise en place du CDC**
-Configuration de PostgreSQL (`wal_level=logical`), création de la publication par l'administrateur
-pour ne pas donner ce droit à Debezium, rôles dédiés, et compréhension des positions de lecture.
-Après une réinitialisation complète (`down -v`), des consommateurs restés actifs pointaient vers
-l'ancien cluster Redpanda : il faut les relancer. Ce problème a disparu avec le passage des
-consommateurs en conteneurs.
-
 **Qualité des données simulées**
-Les premières anomalies générées (par exemple 172 km de natation en 33 minutes) étaient annoncées
-sur Slack. Une règle de **vitesse maximale par sport** a été ajoutée, dans un seul fichier
-(`vitesses_max.csv`) partagé par dbt, Soda et le consommateur Slack : une seule source de vérité.
+Le générateur peut produire des séances volontairement erronées, pour tester les contrôles.
+Les premières anomalies (par exemple 172 km de natation en 33 minutes) n'étaient pourtant pas
+détectées : elles étaient annoncées sur Slack comme des séances normales. Les contrôles existants (dates cohérentes, distance entre 0 et 300 km) ne suffisaient pas : une
+distance peut être plausible en soi et impossible pour la durée et le sport.
 
-**Intégration de Kestra**
-Exécution du code du projet dans le conteneur Kestra (uv, montage en lecture seule, dossiers de
-travail de dbt redirigés vers `/tmp`), transmission des paramètres du formulaire à dbt (`--vars`,
-valeur vide = valeur par défaut). Le chargement automatique des flows au démarrage
-(`--flow-path`) ne reconnaît pas nos tâches dans cette version : le flow est importé par l'API.
+Le problème était structurel : il fallait une règle de **vitesse maximale par sport**, appliquée
+de la même façon à trois endroits (filtre du consommateur Slack, règle `est_valide` de dbt,
+contrôle `vitesses_implausibles` de Soda). L'architecture a évolué en conséquence :
+- les seuils sont rangés dans **un seul fichier versionné**, `dbt/seeds/vitesses_max.csv`, lu
+  directement par le consommateur Slack (copié dans son image) ;
+- dbt le charge en table avec **`dbt seed`**, pour que les modèles et Soda le lisent en SQL ;
+- la même approche a été appliquée aux paramètres métier (`parametres.csv`) ;
+- `dbt seed` est devenu une **étape à part entière** du pipeline, placée avant les contrôles
+  Soda des sources, qui en ont besoin.
+
+Ainsi, une seule source de vérité : modifier un seuil dans le CSV change le comportement de
+Slack, de dbt et de Soda.
 
 **Ressources limitées**
 Tous les choix ont été faits pour tenir sur un poste de 16 Go : PostgreSQL + dbt plutôt que Spark,
@@ -402,30 +433,32 @@ Redpanda, Kestra lancé seulement pour la démo batch, et une image des consomma
 
 **Architecture**
 - **Une seule instance PostgreSQL** pour la source (`app`) et l'entrepôt (`dwh`) : en réalité, deux serveurs distincts. La séparation est faite au niveau des bases, des rôles et des droits.
-- **Redpanda sur un seul nœud, une seule partition**, messages JSON sans schéma : ni réplication, ni tolérance aux pannes.
+- **Redpanda en un seul exemplaire** : s'il s'arrête, le chargement et les messages Slack attendent son redémarrage (aucune séance n'est perdue, Debezium reprend où il en était). Format JSON sans contrôle de schéma : une modification de la table source pourrait casser les consommateurs.
 - **Kestra exécute les tâches dans son propre conteneur** : simple, mais Kestra et le projet sont couplés.
-- **La vue des noms est rangée dans `raw`** : petite entorse à la convention « raw = données brutes », assumée pour éviter un schéma supplémentaire.
 
-**Fiabilité**
+**Fiabilité et disponibilité**
 - At-least-once : un arrêt brutal entre l'envoi et la validation peut produire **un message Slack en double**.
 - Après une longue coupure, Slack publie d'un coup les séances en attente (dans la limite de la durée de rétention de Redpanda).
 - Pas de *healthcheck* applicatif sur les consommateurs : Docker les relance s'ils plantent, pas s'ils sont bloqués.
-- Seuils Soda fixés par nous : ils seraient à valider avec le métier.
 
-**Règles métier (hypothèses du POC)**
+**Cohérence et règles métier (hypothèses du POC)**
 - L'identifiant d'activité Strava est supposé égal à l'identifiant salarié.
 - Le trajet sportif est validé **sur la distance déclarée**, pas sur des trajets réellement enregistrés.
 - Une distance n'est recalculée qu'en cas de changement d'adresse ou de mode, ou sur demande (`recalculer_distances`).
-- L'historique des KPI ajoute une ligne à chaque exécution de dbt, même sans changement de paramètre.
+- Seuils Soda fixés par nous : ils seraient à valider avec le métier.
 
-**Sécurité**
+**Sécurité et confidentialité**
 - Secrets transmis en variables d'environnement (visibles avec `docker inspect` sur la machine).
 - Connexions PostgreSQL sans SSL : acceptable en local uniquement.
 - Publication du nom des salariés sur Slack : nécessiterait leur consentement.
 
-**Industrialisation**
+**Automatisation et industrialisation**
 - Tests unitaires seulement (29), sans test de bout en bout automatisé ni intégration continue.
 - Rapport Power BI actualisé à la main.
+- L'historique des KPI ajoute une ligne à chaque exécution de dbt, même sans changement de paramètre.
+
+**Conventions et bonnes pratiques**
+- La vue des noms est rangée dans `raw` : petite entorse à la convention « raw = données brutes », assumée pour éviter un schéma supplémentaire.
 
 ### 5.3 Perspectives d'amélioration et passage à l'échelle
 
@@ -436,7 +469,8 @@ Redpanda, Kestra lancé seulement pour la démo batch, et une image des consomma
 | Streaming | Cluster Redpanda (3 nœuds, plusieurs partitions), *Schema Registry* (Avro) pour faire évoluer les messages |
 | Orchestration | Exécution de chaque tâche Kestra dans sa propre image ; contrôle de l'état et du retard des consommateurs avant le batch ; détail de la tâche en échec dans l'alerte Slack |
 | Supervision | *Healthcheck* des consommateurs (fichier de pouls), tableaux de bord de supervision |
-| Sécurité | Coffre-fort de secrets (Vault, Docker secrets), SSL, contrôle d'accès par ligne (RLS) dans Power BI |
+| Sécurité | Coffre-fort de secrets (Vault, Docker secrets), connexion SSL au serveur PostgreSQL, contrôle d'accès par ligne (RLS) dans Power BI |
+| Confidentialité | Demander aux salariés leur avis sur la publication de leurs activités sportives, ainsi que de leurs nom et prénom, sur un canal public |
 | Restitution | Publication sur Power BI Service, passerelle de données et actualisation planifiée après le pipeline |
 | Qualité du code | Intégration continue (ruff, pytest, `dbt parse` à chaque push), tests de bout en bout |
 | Règles métier | Validation des trajets réels, seuils Soda calibrés avec le métier, cohérence des noms de colonnes (`type_activite`) |
@@ -464,12 +498,12 @@ exécutions et des contrôles qualité (`monitoring`).
 
 - une infrastructure **mono-instance**, sans haute disponibilité ;
 - des **hypothèses métier** simplificatrices (correspondance des identifiants, validation des trajets par la distance) ;
-- une sécurité adaptée au **poste local** (secrets en variables d'environnement, pas de SSL) ;
-- une industrialisation partielle (pas d'intégration continue, rapport actualisé à la main).
+- une sécurité adaptée au **poste local** (secrets en variables d'environnement, pas de SSL).
 
 ### Perspectives
 
-En cas de passage en production : brancher la vraie source Strava, séparer et répliquer
-l'infrastructure (Kubernetes, cluster Redpanda), renforcer la sécurité (coffre-fort de secrets,
-SSL, RLS), industrialiser (intégration continue, tests de bout en bout) et automatiser la
-restitution (Power BI Service).
+En cas de passage en production :
+
+- **séparer et répliquer l'infrastructure** : serveurs distincts pour la source et l'entrepôt, cluster Redpanda, déploiement sur Kubernetes ;
+- **brancher la vraie source Strava** (OAuth, correspondance compte Strava ↔ salarié) et valider les trajets réellement effectués ;
+- **renforcer la sécurité** : coffre-fort de secrets, connexions SSL, contrôle d'accès par ligne (RLS) dans Power BI.
