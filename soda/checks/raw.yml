@@ -20,11 +20,13 @@ checks for activites:
   - missing_count(id_salarie) = 0:
       name: Chaque activité a un salarié
   - values in (id_salarie) must exist in salaries (id_salarie):
-      name: Chaque activité concerne un salarié du fichier RH
+      name: Chaque activité concerne un salarié de la base issue du fichier RH
 
-  # Cohérence des mesures
+  # Cohérence des mesures : Ces mesures sont faites sur chacune des lignes, puis une agrégation est faite sur les résultats
+  # Cette agrégation permet de savoir les résultats passent globalement le test ou pas
+  # Pour savoir si une distance est valide ou pas, soda utilise les indices "valid" renseignés ci-dessous
   - invalid_percent(distance_m):
-      name: Distance comprise entre 0 et 300 km (% d'activités hors bornes)
+      name: Distances comprise entre 0 et 300 km (% d'activités hors bornes)
       valid min: 0
       valid max: 300000
       warn: when > 0
@@ -38,9 +40,13 @@ checks for activites:
            or date_fin - date_debut >= interval '24 hours'
       warn: when > 0
       fail: when > 50
+  # C'est typiquement ici que l'on va se servir des seeds que l'on a chargé avec la commande dbt
   - vitesses_implausibles:
       name: Vitesse moyenne plausible pour le sport (nb d'activités en erreur)
       # Seuils par sport : seed dbt analytics.vitesses_max (dbt/seeds/vitesses_max.csv)
+      # On fait un jointure avec la table des vitesses (dans analytics) pour les sports ayant une distance (Ex : Course à pied)
+      # On retient les lignes qui ont une date de début postérieure à la date de fin (pour calculer la vitesse)
+      # Et on divise la durée par la distance pour calculer la distance, en ne retenant que les lignes pour lesquels cette vitesse est au dessus du max
       vitesses_implausibles query: |
         select count(*)
         from raw.activites a
@@ -49,8 +55,10 @@ checks for activites:
           and a.date_fin > a.date_debut
           and a.distance_m / 1000.0
               / (extract(epoch from (a.date_fin - a.date_debut)) / 3600.0) > v.vitesse_max_kmh
+      # Si il y a plus de 50 vitesses au dessus de la limite, on signe l'echec
       warn: when > 0
       fail: when > 50
+  # Si une activité n'est pas recensé comme une activité "connue"
   - invalid_count(type_activite):
       name: Type d'activité connu
       valid values: [Badminton, Basketball, Boxe, Course à pied, Escalade, Football,
@@ -62,6 +70,7 @@ checks for activites:
 # Référentiel RH (fichier Excel) : une erreur ici fausse les avantages -> échec
 # ---------------------------------------------------------------------------
 checks for salaries:
+  # Au moins un salarié dans la table salaries chargé à partir du fichier RH lors de l'ingestion
   - row_count > 0:
       name: Le fichier RH n'est pas vide
   - schema:
@@ -92,6 +101,7 @@ checks for salaries:
 # ---------------------------------------------------------------------------
 # Sports déclarés
 # ---------------------------------------------------------------------------
+# Cette table liste les sports par salaries (donc a autant de lignes que la table salaries)
 checks for sports:
   - row_count same as salaries:
       name: Une ligne par salarié du fichier RH

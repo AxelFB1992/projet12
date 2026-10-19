@@ -1,8 +1,8 @@
 # Contrôles des données RESTITUÉES à Power BI (data source dwh_analytics).
-# Complémentaires des tests dbt : ici on surveille le résultat final, avec
-# des seuils d'alerte et un historique des contrôles (monitoring.qualite_checks).
+# Complémentaires des tests dbt : ici on surveille le résultat final, avec des seuils d'alerte et un historique des contrôles (monitoring.qualite_checks).
 
 checks for avantages_salaries:
+  # Autant de lignes pour 'avantages_salaries' que pour 'salaries' dans dwh_raw
   - row_count same as salaries in dwh_raw:
       name: Un avantage calculé pour chaque salarié du fichier RH
   - duplicate_count(id_salarie) = 0:
@@ -11,17 +11,20 @@ checks for avantages_salaries:
       name: Pas de prime négative
   - min(cout_bien_etre) >= 0:
       name: Pas de coût bien-être négatif
+  # Dès qu'il y a plus d'une déclaration de trajets non valide, on lève un warning
   - invalid_count(statut_declaration):
       name: Déclarations de trajet à vérifier par les RH (suspectes ou non vérifiées)
       valid values: [non concerné, conforme]
       warn: when > 0
 
+# Il y a en effet une seule ligne dans analytics.kpi_synthese qui est remplacé à chaque execution (l'historique est dans historique_kpi)
 checks for kpi_synthese:
   - row_count = 1:
       name: Une seule ligne de synthèse
   - min(cout_total) > 0:
       name: Coût total positif
 
+# De la même manière, il n'y a qu'une ligne dans analytics.parametres
 checks for parametres:
   - row_count = 1:
       name: Un seul jeu de paramètres
