@@ -259,6 +259,7 @@ def simuler_n_seances(salaries: list[Salarie],n: int,maintenant: datetime,rng: r
     poids = [4 if s.sport else 1 for s in salaries]
     # La liste générale des activités, que l'on aura pas besoin de trier par ordre chronoligue vu qu'elles seront toutes générés les unes après les autres, pour tous les salariés (il n'y a qu'une boucle)
     seances = []
+    # On tire au sort n salariés dans la liste (salaries) en respectant les poids : un sportif a 4 fois plus de chances d'être choisi
     # Pour tous les salariés choisis dans la liste, il y a en n soit autant que le nombre d'activité (1 activité généré par salarié)
     for salarie in rng.choices(salaries, weights=poids, k=n):
         # On suit la même logique que pour la méthode précédente à savoir qu'on selectionne un activite d'activité parmi ses activites et on génère les statistiques grâce aux mesures prévus pour ce activite

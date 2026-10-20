@@ -18,3 +18,8 @@ def test_vue_absente_avant_ingestion():
     noms = {}
     recharger_noms(noms, lire=vue_absente)   # ne doit pas planter
     assert noms == {}
+
+def test_vue_pas_encore_creee():
+    noms = {}
+    recharger_noms(noms, lire=lambda: None)   # to_regclass a renvoyé NULL
+    assert noms == {}

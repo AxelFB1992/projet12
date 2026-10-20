@@ -33,7 +33,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<-EOSQL
     CREATE ROLE powerbi_reader LOGIN PASSWORD '${POWERBI_PASSWORD}';
     -- Kestra : sa base interne
     CREATE ROLE kestra       LOGIN PASSWORD '${KESTRA_DB_PASSWORD}';
-    -- Consommateur Slack : lit UNIQUEMENT les noms des salariés (vue dédiée) dans dwh/raw.noms_salaries
+    -- Consommateur Slack : lit UNIQUEMENT les noms des salariés (vue dédiée) dans dwh.raw.noms_salaries
     CREATE ROLE slack_notifier LOGIN PASSWORD '${SLACK_DB_PASSWORD}';
 
     -- ---------- Bases de données ----------

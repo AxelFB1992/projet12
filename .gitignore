@@ -221,7 +221,7 @@ __marimo__/
 
 # Secrets et données sensibles
 .env
-data/raw/
+data/
 *.xlsx
 dbt/target/
 dbt/logs/

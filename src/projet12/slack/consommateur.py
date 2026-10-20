@@ -51,24 +51,32 @@ log = logging.getLogger("slack")
 # la méthode lire_noms_entrepot n'est plus utile et on la remplace par deux autre méthodes
 
 # Cette méthode est l'équivalente de lire_noms_entrepot mais pour lire dans la vue
-def lire_noms_entrepot() -> dict[int, str]:
+def lire_noms_entrepot() -> dict[int, str] | None:
     """{id_salarie: "Prénom Nom"}, lu dans la vue raw.noms_salaries (créée par l'ingestion),
-    avec le rôle slack_notifier qui n'a accès qu'à cette vue."""
+    avec le rôle slack_notifier qui n'a accès qu'à cette vue.
+    Renvoie None si la vue n'existe pas encore (consommateur démarré avant l'ingestion)."""
     with connexion_slack() as conn:
+        # to_regclass renvoie NULL si la vue est absente : pas d'erreur côté PostgreSQL
+        if conn.execute("SELECT to_regclass('raw.noms_salaries')").fetchone()[0] is None:
+            return None
         lignes = conn.execute("SELECT id_salarie, prenom, nom FROM raw.noms_salaries").fetchall()
     return {id_salarie: f"{prenom} {nom}" for id_salarie, prenom, nom in lignes}
 
 # Cette méthode permet de recharger les noms à chaque fois que l'on rencontre un salarié inconnu
 def recharger_noms(noms: dict[int, str], lire=lire_noms_entrepot) -> None:
     """Complète l'annuaire SUR PLACE depuis la vue, sans planter si elle n'existe pas encore.
-    Appelée au démarrage puis à chaque salarié inconnu (consommateur lancé avant
-    l'ingestion, nouveau salarié en cours d'année). `lire` est remplaçable dans les tests."""
+    Appelée au démarrage puis à chaque salarié inconnu. `lire` est remplaçable dans les tests."""
     try:
-        noms.update(lire())
-        log.info("Annuaire : %d salarié(s)", len(noms))
-    except psycopg.Error:
-        log.warning("Vue raw.noms_salaries indisponible (ingestion pas encore faite ?) : "
+        lus = lire()
+    except psycopg.Error:                      # base injoignable, droits manquants...
+        log.warning("Annuaire illisible : nouvel essai au prochain salarié inconnu")
+        return
+    if lus is None:
+        log.warning("Vue raw.noms_salaries pas encore créée (ingestion pas faite ?) : "
                     "nouvel essai au prochain salarié inconnu")
+        return
+    noms.update(lus)
+    log.info("Annuaire : %d salarié(s)", len(noms))
 
 # Envoie le message au client httpx (ici Slackà) avec un nombre de tentative en cas d'echecs
 def envoyer_slack(client: httpx.Client, url: str, texte: str, tentatives: int = 3) -> None:
