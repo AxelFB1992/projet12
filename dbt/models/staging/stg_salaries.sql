@@ -1,5 +1,7 @@
 -- Salariés : typage, âge, tranches, et traduction du mode de déplacement.
 
+-- Ici, on récupère les informations RH des salariés (chargées depuis le fichier RH grâce à l'ingestion)
+-- Et on complète la table avec quelques calculs : tranche_age, trajet_sportif et mode_api (pour Google Routes)
 select
     id_salarie,
     trim(nom)                                           as nom,

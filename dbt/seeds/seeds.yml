@@ -35,7 +35,7 @@ seeds:
       - name: periode_jours
         description: Période (en jours) sur laquelle on compte les activités
 
-  #Il y a désormais un autre fichier de paramètres pour gérer les vitesses : seeds.yml
+  #Il y a désormais un autre fichier de paramètres pour gérer les vitesses : vitesse_max.csv
   - name: vitesses_max
     description: >
       Vitesse moyenne maximale plausible par sport (marge large au-dessus des records).

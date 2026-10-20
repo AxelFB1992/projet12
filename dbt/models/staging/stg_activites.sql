@@ -2,6 +2,8 @@
 -- Les activités incohérentes sont CONSERVÉES mais marquées (est_valide = false) :
 -- elles ne comptent pas pour les avantages, et restent visibles pour l'analyse qualité.
 
+-- On commence par récupérer la table raw.activites (a) en calculant en plus la duree et en faisant une jointure avec vitesse_max
+-- La jointure porte sur le 'type_activite' qui, je le rappelle, correspond dans notre code à l'activité ('Course à pied, natation')
 with activites as (
     select
         a.*,
@@ -11,6 +13,9 @@ with activites as (
     left join {{ ref('vitesses_max') }} v using (type_activite)
 )
 
+--Une fois que l'on a récupéré cette très grande table, on selectionne les champs qui nous intéresse et on rajoute un champ
+--Ce champs s'appelle est_valide et contrôle, la cohérence des dates, de la distance et de la vitessse
+--Si ces 3 indicateurs sont plausibles, alors est_valide est également à TRUE : c'est un premier (petit) contrôle
 select
     id_activite,
     id_salarie,

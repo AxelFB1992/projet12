@@ -3,22 +3,26 @@
 version: 2
 
 # On commence par indiquer les 3 sources bruts (directement ingéré par Redpanda - chargement) dans la base de données dwh
+# C'est sur ces sources que les modèles de staging vont s'appliquer pour créer les vues de staging
 sources:
   - name: raw
     description: Données brutes, chargées telles quelles par les scripts Python
     schema: raw
     tables:
       - name: salaries
+        # La table salarié est directement obtenu à partir du fichier RH des salariés
         description: Fichier RH (ingestion)
         columns:
           - name: id_salarie
             data_tests: [unique, not_null]
       - name: sports
+        # La table salarié est directement obtenu à partir du fichier sport des salariés
         description: Fichier sport déclaré (ingestion)
         columns:
           - name: id_salarie
             data_tests: [unique, not_null]
       - name: activites
+        # Les activités, quant à elles, viennent de Redpanda puis du consommateur de chargement qui crée la table activites
         description: Activités sportives (Redpanda -> consommateur de chargement)
         columns:
           - name: id_activite
@@ -26,6 +30,7 @@ sources:
 
 # Puis on va chercher la table distances_domicile_travail du schémas geo, nécessaires aux transformations
   - name: geo
+    # Cette table est directement crée par la partie 'geo' du projet 12 ('src/projet12/geo/distance.py')
     description: Distances domicile-travail (API Google Routes)
     schema: geo
     tables:

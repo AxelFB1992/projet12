@@ -10,7 +10,7 @@
 
 -- On parcourt tous les paramètres pour faire une boucle et pour dire
 -- Pour tous les paramètres, si vous en trouvez un qui est clairement spécifié, remplacer le par sa valeur
--- Il y a donc un select par paramètre, ce qui évite d'ecrire 7 fois la même chose pour chaque paramètre
+-- Il y a donc un paramètre de selectionné par tour de boucle, ce qui évite d'ecrire 7 fois la même chose pour chaque paramètre
 select
 {%- for nom in noms %}
     {%- if var(nom, none) is not none %}
@@ -19,6 +19,11 @@ select
     {{ nom }}::numeric as {{ nom }}{{ "," if not loop.last }}
     {%- endif %}
 {%- endfor %}
+-- On va les chercher dans une table qui s'appelle analytics.parametres, qui a été chargé à partir de parametres.csv
 from {{ ref('parametres') }}
 
--- Tous les marts lisent les paramètres à travers ce modèle et uniquement celui-ci : il produit une table stg_parametres.
+-- la vue selectionne les 7 paramètres, si ils sont présents (non null) et les transforme en numérique (',' si ce n'est pas le dernier)
+-- select taux_prime::numeric as taux_prime, ..., periode_jours::numeric as periode_jours from raw.parametres
+-- Tous les marts lisent les paramètres à travers ce modèle et uniquement celui-ci : il produit une vue stg_paramètres
+-- Cette vue est produite à partir de {{ ref('parametres') }} qui revient à from "dwh"."analytics"."parametres".
+-- Au final l'ordre est : parametres.csv -> dbt seed -> dwh.analytics.parametres -> stg_parametres.slq -> vue (stg_parametres.sql)

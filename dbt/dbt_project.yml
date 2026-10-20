@@ -39,6 +39,7 @@ models:
 
 # De la même manière, la description des seeds qui vont être enregistrés dans une table sql sous le format analytics
 # Ce sont des données qui ne proviennent pas de sources réelles mais qui ont un intérêt dans la phase analytique
+# Par conséquent, les seeds seront chargés non pas dans raw (ni dans geo) mais dans analytics
 seeds:
   sport_data:
     # Sera donc crée la table analytics.parametres qui va être utile au moment de l'analyse avec Power BI

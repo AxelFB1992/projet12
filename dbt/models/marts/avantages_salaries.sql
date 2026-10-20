@@ -81,12 +81,12 @@ base as (
     left join activites_periode a using (id_salarie)
 )
 
--- Ici on récupère seulement les champs qui nous interesseet on calcule :
--- -Eligibilité à la prime
--- -Montant de la prime
--- -Eligibilite aux journees bien-être
+-- Ici on récupère seulement les champs qui nous interesseet on calcule, pour chaque salarié :
+-- -Eligibilité à la prime de ce salarié
+-- -Montant de la prime pour ce salarié
+-- -Eligibilite aux journees bien-être pour ce slarié
 -- -Nombre de jours bien-être octroyé au salarié
--- -Couts des journées bien-être
+-- -Couts des journées bien-être représenté par ce salarié
 
 select
     id_salarie,
@@ -99,6 +99,7 @@ select
     moyen_deplacement,
     trajet_sportif,
     distance_km,
+    -- Seuil du nombre de km cohérent correspondant au moyen de transport déclaré par le salarié : marche -> 15km, vélo -> 25km
     seuil_km,
     statut_declaration,
 
@@ -108,10 +109,12 @@ select
          then round(salaire_brut * taux_prime, 2) else 0 end      as montant_prime,
 
     -- Journées bien-être : au moins N activités valides sur la période
+    -- On calcule également le nombre d'activité pour savoir si il atteint le seuil (de 15 activités actuellement) pour être éligible
     nb_activites,
     nb_activites >= nb_activites_min                              as eligible_bien_etre,
     case when nb_activites >= nb_activites_min
          then nb_jours_bien_etre else 0 end                       as jours_bien_etre,
+    -- On calcule également le cout bien être par salarié en sachant qu'une journée bien être est une journée payée non travaillée
     case when nb_activites >= nb_activites_min
          then round(salaire_brut / jours_travailles_an * nb_jours_bien_etre, 2)
          else 0 end                                               as cout_bien_etre

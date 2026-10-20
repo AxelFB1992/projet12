@@ -25,7 +25,7 @@ class Activite:
         return self.distance_km is not None
 
 
-# ---------- Types d'activité ----------
+# ---------- Acitivités ----------
 COURSE = Activite("Course à pied", distance_km=(3, 8, 21), vitesse_kmh=(8.5, 13))
 RANDONNEE = Activite("Randonnée", distance_km=(5, 10, 25), vitesse_kmh=(3, 5))
 NATATION = Activite("Natation", distance_km=(0.5, 1.5, 4), vitesse_kmh=(2, 3.5))
