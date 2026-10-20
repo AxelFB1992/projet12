@@ -157,84 +157,127 @@ services:
     container_name: p12-kestra
     restart: unless-stopped
     user: root
+    # Cette commande permet de lancer tous les composants (scheduler, executor, worker et webserver) dans le même processus
+    # --worker-thread=2 permet au worker d’exécuter au maximum 2 tâches en même temps (même si il n'y a pas de tâches en parallèle)
     command: server standalone --worker-thread=2
     environment:
+      # La limite mémoire pour la machine virtuelle (JVM) dans laquelle s'execute Java
       JAVA_TOOL_OPTIONS: -Xmx768m
       KESTRA_CONFIGURATION: |
         datasources:
           postgres:
+            # Adresse de conenxion à la base postgres interne de kestra, au format jdbc
+            # url: pilote_Postgresql://nom_de_la_base_port_intern_du_conteneur/nom_de_la_base
             url: jdbc:postgresql://postgres:5432/kestra
+            # l'emplacement du driver pour se conncter à postgres
             driverClassName: org.postgresql.Driver
+            # Identifiants postgres du rôle kestra
             username: kestra
             password: ${KESTRA_DB_PASSWORD}
             # Pas nécessaire, déjà présent dans le .env monté grâce aux commandes set ... executées dans Kestra
             #SLACK_DB_PASSWORD: ${SLACK_DB_PASSWORD}
+        # Configuration de Kestra, inscrite sur la base interne de Kestra
         kestra:
+          # Configuration du serveur : identifiants de connexion
           server:
             basic-auth:
               username: ${KESTRA_ADMIN_EMAIL}
               password: ${KESTRA_ADMIN_PASSWORD}
+          # Où sont stocker les meta données de Kestra : dans la base définie ci-dessus par la source postgres
           repository:
             type: postgres
+          # Où sont stocker la file demessages internes de Kestra : dans la base définie ci-dessus par la source postgres
           queue:
             type: postgres
+          # Le stockage interne de fichier de Kestra se fait quant à lui en en local, pas dans postgres
           storage:
             type: local
+            # l'Emplacement local des fichiers interne, dans le système de fichier du conteneur
             local:
               base-path: /app/storage
+          # Configuration pour les tâches
           tasks:
+            # Dossier de travail temporaire de chaque tâche, vidé après l'execution des tâches
             tmp-dir:
               path: /tmp/kestra-wd/tmp
+          # Url du webserveur accessible depuis l'exterieur (hors du conteneur)
           url: http://localhost:8080/
+    # Le port du conteneur à l'exterieur est le même qu'à l'intérieur : 8080
     ports:
       - "127.0.0.1:8080:8080"     # http://localhost:8080
+    # Volumes nommées, qui survivent à la suppression du conteneur
+    # Pour la structure on a toujours : les dossiers et volumes persistants sur mon poste : les dossiers montés dans le conteneur
     volumes:
+      # Permet de conserver quelque part (dans kestra_storage de docker) le stockage interne de Kestra, définie ci-dessus
       - kestra_storage:/app/storage
-      - kestra_uv:/opt/uv          # Python + dépendances du projet (installés au 1er lancement)
-      - .:/projet12:ro             # le projet, en LECTURE SEULE
+      # Python + dépendances du projet (installés au 1er lancement) stockés dans /opt/uv du conteneur
+      - kestra_uv:/opt/uv
+      # le projet présent à la racine (.) est monté dans un dossier /projet12 à la racine du système de fichier du conteneur    
+      - .:/projet12:ro             
     depends_on:
       postgres:
         condition: service_healthy
     mem_limit: 1536m
 
   # ---------------------------------------------------------------------------
-  # Consommateurs temps réel : services toujours actifs, relancés par Docker
-  # s'ils s'arrêtent. Même image (docker/app/Dockerfile), commande différente.
-  # Logs : docker logs -f p12-chargement / docker logs -f p12-slack
+  # Consommateurs temps réel : services toujours actifs, relancés par Docker s'ils s'arrêtent. 
+  # Même image (docker/app/Dockerfile), commande différente. Logs : docker logs -f p12-chargement / docker logs -f p12-slack
   # ---------------------------------------------------------------------------
   chargement:
+    # On ne fait qu'une clause build pour les deux conteneurs car il n'y a qu'une seule image à créer
+    # Cette image (projet12-consumers) est crée une seule fois par la clause ci-dessous
     build:
+      # Le contexte de l'image se trouve être la racine du projet
       context: .
+      # A partir de ce contexte, il faut indiquer où se trouve le Dockerfile de l'image
       dockerfile: docker/consumers/Dockerfile
+    # Si l'image est la même pour les deux conteneurs à savoir projet12-consumers
     image: projet12-consumers
+    # Le conteneur est bien propre à chaque service, un pour le chargement et un pour slack
     container_name: p12-chargement
+    # Tant que le service n'est pas lancé avec les autres, on le relance
     restart: unless-stopped
+    # Commande pour lancere spécifiquement ce service
     command: ["python", "-m", "projet12.chargement"]
     environment:
       # Adresses vues DEPUIS le réseau Docker (et non depuis ta machine)
+      # Le service postgres sert au chargement pour stocker les activités dans raw
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      KAFKA_BOOTSTRAP: redpanda:9092
+      # Il utilise le rôle etl pour extraire (et charger) les informations dans raw
       ETL_PASSWORD: ${ETL_PASSWORD}
+      # Il reçoit ses informations du service redpanda, avec lequel il a besoin de communiquer
+      # C'est le port du service dans le réseau docker (projet12_default), pas depuis l'exterieur.
+      KAFKA_BOOTSTRAP: redpanda:9092
+    # postgres et redpanda doivent évidemment être lancé pour que le chargement puisse s'opérer
     depends_on:
       postgres:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+    # La taille limite de RAM pour ce conteneur est faible
     mem_limit: 256m
 
+  # Les commentaires ci-dessous sont quasiment les mêmes que pour le conteneur ci-dessus
   slack:
-    image: projet12-consumers   # même image, construite par le service chargement/ à ne pas reconstruire une deuxième fois
-    pull_policy: never          # ne pas la chercher sur Docker Hub : elle est locale
+    # même image, construite par le service chargement/ à ne pas reconstruire une deuxième fois
+    image: projet12-consumers
+    # Pour éviter un code d'erreur, ne pas la chercher sur Docker Hub : elle est locale   
+    pull_policy: never          
     container_name: p12-slack
     restart: unless-stopped
     command: ["python", "-m", "projet12.slack"]
     environment:
+      # Le consommateur slack utilise postgres non pas pour écrire mais pour lire la vue raw.nom_salaries
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
-      KAFKA_BOOTSTRAP: redpanda:9092
+      # Pour lire cette vue, il faut qu'il se connecte avec le rôle slack_notifier pour lire la vue
       SLACK_DB_PASSWORD: ${SLACK_DB_PASSWORD}
+      # Il a aussi besoin de l'url du webhook pour afficher les messages en temps réel
       SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL}
+      # De la même manière que pour le chargement, il doit être connecté à redpanda pour recevoir les messages du topic
+      KAFKA_BOOTSTRAP: redpanda:9092
+    # A l'instar de chargement, les services redpanda et postgres doivent déjà être en execution
     depends_on:
       postgres:
         condition: service_healthy
