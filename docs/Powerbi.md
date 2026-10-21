@@ -285,7 +285,7 @@ Filtre du visuel : `statut_declaration` = « suspecte » ou « non vérifiée »
 | Axe Y | `Nb activités valides` |
 | Légende | `source` (backfill / live) |
 
-Sans séances live, la légende n'a qu'une valeur : lancer `generation live --n 5` avant d'actualiser.
+Sans séances live, la légende n'a qu'une valeur : lancer `generation simuler_n_seance --n 5` avant d'actualiser.
 
 **Graphique à barres groupées** — activités par sport
 
@@ -381,7 +381,7 @@ Colonnes : `verifie_le`, `table_verifiee`, `controle`, `resultat`, `valeur`.
 - Format → Éléments de cellule → couleur sur `resultat` : orange pour warn, rouge pour fail.
 
 > Si tous les contrôles sont « pass », la table est vide (base propre). Pour la démo :
-> `generation live --n 10 --taux-anomalies 0.5`, puis `python -m projet12.qualite`, puis Actualiser.
+> `generation simuler_n_seance --n 10 --taux-anomalies 0.5`, puis `python -m projet12.qualite`, puis Actualiser.
 
 ---
 

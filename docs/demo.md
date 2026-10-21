@@ -64,7 +64,7 @@ chargées » échoue et le pipeline s'arrête).
 
 ```bash
 # T1
-uv run --env-file .env python -m projet12.generation backfill --graine 42
+uv run --env-file .env python -m projet12.generation generer_historique --graine 42
 ```
 
 → T2 charge ~7 900 activités. T3 ne publie rien : l'historique n'est jamais annoncé
@@ -149,13 +149,13 @@ des noms.
 
 ```bash
 # T1
-uv run --env-file .env python -m projet12.generation live --n 3
+uv run --env-file .env python -m projet12.generation simuler_n_seance  --n 3
 ```
 
 → T3 : « Annuaire : 161 salarié(s) » (premier salarié inconnu → relecture de la vue),
 puis 3 messages avec les vrais noms. T2 : 3 lignes chargées.
 
-Variante « au fil de l'eau » pendant qu'on parle : `live --n 1 --intervalle 10`
+Variante « au fil de l'eau » pendant qu'on parle : `simuler_n_seance --n 1 --intervalle 10`
 (Ctrl+C pour arrêter la génération).
 
 ---
@@ -187,7 +187,7 @@ Revenir aux valeurs par défaut : relancer sans `--vars` (ou Kestra avec les cha
 **Avertissements** : quelques séances erronées.
 
 ```bash
-uv run --env-file .env python -m projet12.generation live --n 10 --taux-anomalies 0.5
+uv run --env-file .env python -m projet12.generation simuler_n_seance --n 10 --taux-anomalies 0.5
 ```
 
 → Slack n'annonce que les séances cohérentes.
@@ -198,7 +198,7 @@ uv run --env-file .env python -m projet12.generation live --n 10 --taux-anomalie
 **Échec** : beaucoup d'erreurs.
 
 ```bash
-uv run --env-file .env python -m projet12.generation live --n 100 --taux-anomalies 0.8
+uv run --env-file .env python -m projet12.generation simuler_n_seance --n 100 --taux-anomalies 0.8
 ```
 
 - **Manuel :** `uv run --env-file .env python -m projet12.qualite ; echo "code de sortie : $?"`

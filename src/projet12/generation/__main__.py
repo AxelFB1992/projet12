@@ -19,11 +19,13 @@ import random
 import sys
 import time
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timedelta
+
 
 from projet12.config import FICHIER_RH, FICHIER_SPORT, connexion_app
 from projet12.generation.ecriture import compter_par_source, inserer_seances
 from projet12.generation.generateur import (
+    Seance,
     TZ,
     charger_utilisateurs,
     simuler_anomalie,
@@ -35,7 +37,7 @@ log = logging.getLogger("generation")
 
 #-----------------------------------Commande Backfill : génération de l'historique------------------------------------------
 # Permet de générer un historique grâce à la méthode 'simuler_historique_seances' de generateur.py et de l'écrire dans la base de données grâce à inserer_seances de ecriture.py
-def commande_backfill(args: argparse.Namespace) -> int:
+def commande_generer_historique(args: argparse.Namespace) -> int:
     """
     Cette méthode réalise dans l'ordre les actions suivantes :
     - Se connecter à la base de données
@@ -85,7 +87,7 @@ def commande_backfill(args: argparse.Namespace) -> int:
 
 #-----------------------------------Commande Live : génération d'activité en direct------------------------------------------
 # Permet de générer quelques activités à la méthode 'simuler_n_seances' de generateur.py et de l'écrire dans la base de données grâce à inserer_seances de ecriture.py
-def commande_live(args: argparse.Namespace) -> int:
+def commande_simuler_n_seances(args: argparse.Namespace) -> int:
     """
     Cette méthode réalise dans l'ordre les actions suivantes :
     - Se connecter à la base de données
@@ -122,6 +124,40 @@ def commande_live(args: argparse.Namespace) -> int:
                 return 0
             time.sleep(args.intervalle)   # mode boucle : Ctrl+C pour arrêter
 
+
+
+
+def commande_construire_seance(args: argparse.Namespace) -> int:
+    """Enregistre une séance saisie à la main (démo : « je viens de courir »)."""
+    # Vérifie que l'identifiant existe dans le fichier RH (sinon la séance
+    # serait chargée dans l'entrepôt, mais rattachée à aucun salarié)
+    # Par ailleurs, on peut avoir un salarié présent dans le fichier RH de l'appli sans qu'il ne soit présents dans la base raw
+    # Dans ce cas on affichera la séance dans Slack avec marqué "Un collègue"
+    ids_connus = {s.id_salarie for s in charger_utilisateurs(FICHIER_RH, FICHIER_SPORT)}
+    if args.salarie not in ids_connus:
+        log.error("Salarié %s inconnu du fichier RH : séance non enregistrée", args.salarie)
+        return 1
+
+    date_fin = datetime.now(TZ)
+    seance = Seance(
+        id_salarie=args.salarie,
+        date_debut=date_fin - timedelta(minutes=args.duree_min),
+        nom_activite=args.activite,
+        distance_m=round(args.distance_km * 1000) if args.distance_km is not None else None,
+        date_fin=date_fin,
+        commentaire=args.commentaire,
+        source="live",          # traitée comme une séance live (Slack inclus)
+    )
+
+    with connexion_app() as conn:
+        inserer_seances(conn, [seance])
+
+    details = f"{args.duree_min} min"
+    if seance.distance_m:
+        details = f"{args.distance_km:.1f} km, {details}"
+    log.info("✅ Séance enregistrée : salarié %s, %s, %s", args.salarie, args.activite, details)
+    return 0
+
 #-----------------------------------Méthode MAIN-------------------------------------------------------------------------------
 # Permet de déterminer quelle commande a été tapé dans le terminal et d'executer celle-ci grâce aux deux méthodes définies précedemment
 def main() -> int:
@@ -151,18 +187,27 @@ def main() -> int:
     # Parseurs tertiaires : pour chacune des deux méthodes possibles (backfill ou live), permet d'analyser et de stocker les arguments pour les passer en paramètre des méthodes
 
     # Parseur tertiaire pour reconnaitre les arguments de la commande backfill et de la passer en paramètre de la méthode associée
-    p_backfill = sous.add_parser("backfill", help="Historique des 12 derniers mois")
-    p_backfill.add_argument("--jours", type=int, default=365, help="Durée de l'historique (défaut : 365)")
-    p_backfill.add_argument("--graine", type=int, default=42, help="Graine aléatoire, pour un résultat reproductible (défaut : 42)")
-    p_backfill.add_argument("--taux-anomalies", type=float, default=0.0, help="Part d'activités volontairement erronées, ex. 0.01 (défaut : 0)")
-    p_backfill.set_defaults(func=commande_backfill)
+    p_historique = sous.add_parser("generer_historique", help="Historique des 12 derniers mois")
+    p_historique.add_argument("--jours", type=int, default=365, help="Durée de l'historique (défaut : 365)")
+    p_historique.add_argument("--graine", type=int, default=42, help="Graine aléatoire, pour un résultat reproductible (défaut : 42)")
+    p_historique.add_argument("--taux-anomalies", type=float, default=0.0, help="Part d'activités volontairement erronées, ex. 0.01 (défaut : 0)")
+    p_historique.set_defaults(func=commande_generer_historique)
+    
+    # Parseur tertiaire pour reconnaitre les arguments de la commande live et de la passer en paramètre de la méthode associée
+    p_simuler = sous.add_parser("simuler_n_seance", help="Activités qui viennent de se terminer")
+    p_simuler.add_argument("--n", type=int, default=1, help="Nombre d'activités par envoi (défaut : 1)")
+    p_simuler.add_argument("--intervalle", type=int, default=0, help="Secondes entre deux envois ; 0 = un seul envoi (défaut : 0)")
+    p_simuler.add_argument("--taux-anomalies", type=float, default=0.0, help="Part d'activités volontairement erronées, ex. 0.5 (défaut : 0)")
+    p_simuler.set_defaults(func=commande_simuler_n_seances)
 
-    # Parseur tertiaire pour reconnaitre les arguments de la commande backfill et de la passer en paramètre de la méthode associée
-    p_live = sous.add_parser("live", help="Activités qui viennent de se terminer")
-    p_live.add_argument("--n", type=int, default=1, help="Nombre d'activités par envoi (défaut : 1)")
-    p_live.add_argument("--intervalle", type=int, default=0, help="Secondes entre deux envois ; 0 = un seul envoi (défaut : 0)")
-    p_live.add_argument("--taux-anomalies", type=float, default=0.0, help="Part d'activités volontairement erronées, ex. 0.5 (défaut : 0)")
-    p_live.set_defaults(func=commande_live)
+    # Parseur tertiaire pour reconnaitre les arguments de la commande seance et de la passer en paramètre de la méthode associée
+    p_construire = sous.add_parser("construire_seance", help="Saisir une séance à la main")
+    p_construire.add_argument("--salarie", type=int, required=True, help="ID salarié (fichier RH)")
+    p_construire.add_argument("--activite", required=True, help="Type d'activité, ex. Course à pied")    
+    p_construire.add_argument("--duree-min", type=int, required=True, help="Durée en minutes")
+    p_construire.add_argument("--distance-km", type=float, default=None, help="Distance en km (facultatif)")
+    p_construire.add_argument("--commentaire", default=None, help="Commentaire (facultatif)")
+    p_construire.set_defaults(func=commande_construire_seance)
 
     # Analyse et aiguille la commande grâce au parseur principal ainsi qu'à tous ses parseurs secondaires
     args = parser.parse_args()
