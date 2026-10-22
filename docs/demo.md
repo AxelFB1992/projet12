@@ -210,7 +210,7 @@ uv run --env-file .env python -m projet12.generation simuler_n_seance --n 10 --t
 **Échec** : beaucoup d'erreurs.
 
 ```bash
-uv run --env-file .env python -m projet12.generation simuler_n_seance --n 100 --taux-anomalies 0.8
+uv run --env-file .env python -m projet12.generation simuler_n_seance --n 200 --taux-anomalies 0.8
 ```
 
 - **Manuel :** `uv run --env-file .env python -m projet12.qualite ; echo "code de sortie : $?"`
