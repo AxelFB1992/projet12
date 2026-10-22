@@ -34,7 +34,11 @@ Kestra n'est **pas** démarré ici : il n'est pas nécessaire au temps réel, et
 
 ```bash
 docker compose down -v                 # efface TOUTES les données (bases, topics, Kestra)
+# Lors de la toute première exécution du projet sur la machine locale
 docker compose up -d --build postgres redpanda redpanda-console debezium chargement slack
+OU
+# A partir de la deuxième exécution sur la machine locale (les images sont déjà téléchargées)
+docker compose up -d postgres redpanda redpanda-console debezium chargement slack
 docker compose ps                      # postgres et redpanda : (healthy), les autres : Up
 sleep 15
 docker logs p12-postgres 2>&1 | grep -iE "error|fatal|unbound|not found|initialisation"
