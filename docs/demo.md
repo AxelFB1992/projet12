@@ -34,12 +34,13 @@ Kestra n'est **pas** démarré ici : il n'est pas nécessaire au temps réel, et
 
 ```bash
 docker compose down -v                 # efface TOUTES les données (bases, topics, Kestra)
-# Lors de la toute première exécution du projet sur la machine locale
+# A la toute première execution sur la machine locale
 docker compose up -d --build postgres redpanda redpanda-console debezium chargement slack
-OU
-# A partir de la deuxième exécution sur la machine locale (les images sont déjà téléchargées)
+# OU
+# A partir de la deuxième execution sur la machine locale (les images sont déjà téléchargées)
 docker compose up -d postgres redpanda redpanda-console debezium chargement slack
-docker compose ps                      # postgres et redpanda : (healthy), les autres : Up
+docker compose ps -a                   # postgres et redpanda : (healthy), redpanda-init : Exited (0), les autres : Up
+>>>>>>> 8074e50 (49e commit - Ajout du service Redpanda-init dans le docker-compose.yml afin de créer le topic avant l'execution du service de génération : Ainsi les premières activités ajoutées peuvent s'afficher aussi bien dans le consommateurs de chargement que dans le consommateur slack (si il s'agit d'activités live) - Modification du Readme.md en conséquences - Modifications de docs/demo.md pour intégrer les commandes de créations d'activités personnalisées, les alternatives au docker compose up -d build (sans le build), ajout de commandes de visualisation psql relatives aux différentes étapes de la démo et enfin commentaires sur l'ajout de redpanda-init)
 sleep 15
 docker logs p12-postgres 2>&1 | grep -iE "error|fatal|unbound|not found|initialisation"
 # attendu : la ligne ✅ (et éventuellement "sh: locale: not found", sans importance)
@@ -49,8 +50,7 @@ Ouvrir T2 et T3 :
 
 ```bash
 docker logs -f p12-chargement          # T2 : "En écoute sur app.public.activites..."
-docker logs -f p12-slack               # T3 : "Vue raw.noms_salaries indisponible..." (normal : pas encore d'ingestion)
-```
+docker logs -f p12-slack               # T3 : "Vue raw.noms_salaries pas encore créée..." (normal : pas encore d'ingestion), puis "En écoute sur app.public.activites..."```
 
 Contrôle du code :
 
@@ -105,11 +105,70 @@ uv run --env-file .env python -m projet12.qualite --schemas analytics
 
 Résultats :
 
+Résultats (une requête par étape, sans nom ni salaire affiché) :
+
 ```bash
+# 1. Ingestion : 161 salariés, 161 déclarations sportives, vue des noms (aucune copie)
 docker exec -it p12-postgres psql -U etl -d dwh -c "
-select nb_eligibles_prime, cout_prime, nb_eligibles_bien_etre, cout_bien_etre, cout_total
-from analytics.kpi_synthese;"
+select 'raw.salaries' as objet, count(*) as lignes, max(fichier_source) as fichier, max(charge_le) as charge_le from raw.salaries
+union all
+select 'raw.sports', count(*), max(fichier_source), max(charge_le) from raw.sports
+union all
+select 'raw.noms_salaries (vue)', count(*), null, null from raw.noms_salaries;"
+
+# 2. Geo : distances par mode et par statut Google
+#    (relancer geo : « 0 trajet(s) à calculer » et calcule_le ne change pas)
+docker exec -it p12-postgres psql -U etl -d dwh -c "
+select mode_api, statut, count(*) as trajets,
+       round(avg(distance_m) / 1000.0, 1) as km_moyen, round(max(distance_m) / 1000.0, 1) as km_max,
+       max(calcule_le) as calcule_le
+from geo.distances_domicile_travail group by 1, 2 order by 1, 2;"
+
+# 3. Seeds : paramètres et vitesses maximales
+docker exec -it p12-postgres psql -U etl -d dwh \
+  -c "select * from analytics.parametres;" \
+  -c "select * from analytics.vitesses_max order by vitesse_max_kmh desc;"
+
+# 4. Contrôles des sources : bilan du dernier passage, puis contrôles non conformes
+docker exec -it p12-postgres psql -U etl -d dwh \
+  -c "select fichier_soda, resultat, count(*) as controles
+      from monitoring.qualite_checks
+      where execution_id = (select execution_id from monitoring.qualite_checks order by verifie_le desc limit 1)
+      group by 1, 2 order by 1, 2;" \
+  -c "select table_verifiee, controle, resultat, valeur
+      from monitoring.qualite_checks
+      where execution_id = (select execution_id from monitoring.qualite_checks order by verifie_le desc limit 1)
+        and resultat <> 'pass';"
+
+# 5. dbt : volumes du staging et des marts, déclarations de trajet, KPI
+docker exec -it p12-postgres psql -U etl -d dwh \
+  -c "select 'staging.stg_activites (vue)' as objet, count(*) as lignes, count(*) filter (where est_valide) as valides from staging.stg_activites
+      union all
+      select 'analytics.activites', count(*), count(*) filter (where est_valide) from analytics.activites
+      union all
+      select 'analytics.avantages_salaries', count(*), null from analytics.avantages_salaries
+      union all
+      select 'analytics.historique_kpi', count(*), null from analytics.historique_kpi;" \
+  -c "select statut_declaration, count(*) as salaries, count(*) filter (where eligible_bien_etre) as eligibles_bien_etre
+      from analytics.avantages_salaries group by 1 order by 2 desc;" \
+  -c "select nb_eligibles_prime, cout_prime, nb_eligibles_bien_etre, cout_bien_etre, cout_total
+      from analytics.kpi_synthese;"
+
+# 6. Contrôles des résultats : bilan du dernier passage, puis journal du pipeline
+docker exec -it p12-postgres psql -U etl -d dwh \
+  -c "select fichier_soda, resultat, count(*) as controles
+      from monitoring.qualite_checks
+      where execution_id = (select execution_id from monitoring.qualite_checks order by verifie_le desc limit 1)
+      group by 1, 2 order by 1, 2;" \
+  -c "select etape, statut, nb_lignes, message, fin
+      from monitoring.pipeline_runs
+      where etape <> 'chargement_activites'
+      order by fin desc limit 8;"
 ```
+
+> Les requêtes 4 et 6 lisent le **dernier** passage de Soda : les lancer juste après
+> la commande correspondante.
+
 
 L'ingestion a aussi créé la vue des noms pour Slack. Droits du rôle `slack_notifier` :
 
@@ -125,7 +184,11 @@ docker exec -it p12-postgres psql -U slack_notifier -d dwh -c "select salaire_br
 Démarrer Kestra, puis importer le flow (après un `down -v`, sa base est vide) :
 
 ```bash
+# A la toute première execution sur la machine locale
 docker compose up -d --build kestra
+# OU
+# A partir de la deuxième execution sur la machine locale
+docker compose up -d kestra
 docker logs -f p12-kestra              # attendre "Server Running", puis Ctrl+C
 set -a && . ./.env && set +a
 curl -s -u "$KESTRA_ADMIN_EMAIL:$KESTRA_ADMIN_PASSWORD" \
@@ -170,6 +233,13 @@ Séance saisie à la main (ID salarié à prendre dans le fichier RH, activité 
 
 ```bash
 uv run --env-file .env python -m projet12.generation construire_seance --salarie <ID> --activite "Course à pied" --duree-min 42 --distance-km 8.5 --commentaire "Sortie du midi"
+
+# Séance erronée (12km - 20 min - 36km/h) - ne s'affiche pas dans slack :
+uv run --env-file .env python -m projet12.generation construire_seance --salarie 59019 --activite "Course à pied" --duree-min 20 --distance-km 12 --commentaire "Record du monde battu ?"
+
+# Séance valide (8,5km - 45 min - 11,3km/h) - s'affiche dans slack :
+uv run --env-file .env python -m projet12.generation construire_seance --salarie 59019 --activite "Course à pied" --duree-min 45 --distance-km 8.5 --commentaire "Sortie du midi"
+
 ```
 
 → T2 : 1 ligne chargée. T3 : un message Slack.

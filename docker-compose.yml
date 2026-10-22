@@ -119,6 +119,27 @@ services:
     # Limite de mémoire RAM allooué en service (en général, les réglages internes sont déjà en dessous de ces limites)
     mem_limit: 256m
 
+
+  # ---------------------------------------------------------------------------
+  # Redpanda Init : Crée le topic app.public.activites avant la génération de messages
+  # ---------------------------------------------------------------------------  
+  # Crée le topic dès le démarrage (avant tout message), pour que le consommateur
+  # Slack (auto.offset.reset = latest) s'y positionne tout de suite et n'en saute
+  # aucun. Ne fait rien si le topic existe déjà.
+  redpanda-init:
+    image: redpandadata/redpanda:v24.3.1
+    container_name: p12-redpanda-init
+    restart: "no"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >-
+        rpk topic describe app.public.activites -X brokers=redpanda:9092 > /dev/null 2>&1
+        || rpk topic create app.public.activites -p 1 -r 1 -X brokers=redpanda:9092
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    mem_limit: 128m
+
   # ---------------------------------------------------------------------------
   # Debezium Server : lit le journal Postgres (CDC) et publie dans Redpanda
   # ---------------------------------------------------------------------------
@@ -255,6 +276,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     # La taille limite de RAM pour ce conteneur est faible
     mem_limit: 256m
 
@@ -283,6 +306,8 @@ services:
         condition: service_healthy
       redpanda:
         condition: service_healthy
+      redpanda-init:
+        condition: service_completed_successfully
     mem_limit: 256m
 
 # Etant donné que ce ne sont pas des chemins déjà existants (comme les montages de dossier), les volumes docker doivent être crée

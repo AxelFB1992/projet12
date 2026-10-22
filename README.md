@@ -120,6 +120,7 @@ orchestré par Kestra).*
 | PostgreSQL | 16 (alpine) | Bases de données `app` (source simulée), `dwh` (entrepôt) et `kestra` (base interne de Kestra) |
 | Debezium Server | 3.0 | Capture des changements (CDC) dans le journal de PostgreSQL (WAL) associé à la base de données `app` |
 | Redpanda | 24.3 | Plateforme de streaming de messages compatible Kafka |
+| Redpanda Init (rpk) | 24.3 | Conteneur éphémère : crée le topic `app.public.activites` au démarrage, puis s'arrête |
 | Redpanda Console | 2.8 | Interface web de Redpanda : topics, messages, groupes de consommateurs |
 | dbt (dbt-postgres) | 1.12 / 1.11 | Transformations SQL et tests |
 | Soda Core | 3.5 | Contrôles de qualité des données |
@@ -256,9 +257,9 @@ uv sync --no-default-groups               # socle seul (image des consommateurs)
 - Publie chaque insertion dans Redpanda. Après un *snapshot* initial de la table (copie de son contenu au premier démarrage), il ne l'interroge plus : il suit le journal (pas de requêtes répétées).
 - Conserve sa position dans un volume : rien n'est perdu en cas de redémarrage.
 
-**Redpanda** (`p12-redpanda`) et **Redpanda Console** (`p12-redpanda-console`)
+**Redpanda** (`p12-redpanda`), **Redpanda Console** (`p12-redpanda-console`) et **Redpanda Init** (`p12-redpanda-init`)
 - Plateforme de streaming compatible Kafka, plus légère (un seul binaire, pas de JVM ni de ZooKeeper).
-- Topic `app.public.activites` : une activité = un message JSON.
+- Topic `app.public.activites` : une activité = un message JSON. Il est créé au démarrage par `p12-redpanda-init` (qui s'arrête ensuite), avant tout message : le consommateur Slack, qui ne lit que les nouveaux messages, s'y positionne tout de suite et n'en saute aucun, même si la démo commence par des séances live.
 - Deux groupes de consommateurs lisent ce topic indépendamment : `dwh-loader` (chargement dans l'entrepôt) et `slack-notifier` (messages Slack).
 - Chaque groupe de consommateurs garde sa propre position de lecture (*offset*) : un consommateur arrêté reprend où il s'était arrêté, sans effet sur l'autre.
 - Console web sur http://localhost:8085.
@@ -377,7 +378,7 @@ Le déroulé complet, commande par commande et avec les résultats attendus, est
 
 | Instruction | Ce qui se passe |
 |---|---|
-| `docker compose up -d --build postgres redpanda redpanda-console debezium chargement slack` | PostgreSQL démarre (et s'initialise s'il est vide), puis Redpanda. Debezium se connecte au WAL de `app`. Les deux consommateurs s'abonnent au topic et attendent les messages. |
+| `docker compose up -d --build postgres redpanda redpanda-console debezium chargement slack` | PostgreSQL démarre (et s'initialise s'il est vide), puis Redpanda. `redpanda-init` crée le topic `app.public.activites` puis s'arrête. Debezium se connecte au WAL de `app`. Les deux consommateurs s'abonnent au topic et attendent les messages. |
 | `python -m projet12.generation generer_historique` | Des séances sont insérées dans `app.public.activites`. Debezium les capte et les publie dans Redpanda. Le chargement les écrit dans `raw.activites`. Slack les ignore (historique). |
 | `python -m projet12.ingestion` | Les fichiers Excel sont validés et chargés dans `raw.salaries` et `raw.sports`. La vue des noms des salariés (`raw.noms_salaries`) est créée spécifiquement pour Slack. |
 | `python -m projet12.geo` | Les adresses des salariés au trajet sportif sont envoyées à Google Routes API. Les distances sont mises en cache dans `geo`. |
