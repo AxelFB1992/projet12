@@ -69,7 +69,7 @@ tasks:
     type: io.kestra.plugin.scripts.shell.Commands
     description: Contrôles Soda des données brutes ; un échec arrête le pipeline AVANT les calculs
     commands:
-      - uv run --no-sync python -m projet12.qualite --seulement raw geo
+      - uv run --no-sync python -m projet12.qualite --schemas raw geo
 
   - id: calculs_dbt
     type: io.kestra.plugin.scripts.shell.Commands
@@ -89,7 +89,7 @@ tasks:
     type: io.kestra.plugin.scripts.shell.Commands
     description: Contrôles Soda des tables lues par Power BI
     commands:
-      - uv run --no-sync python -m projet12.qualite --seulement analytics
+      - uv run --no-sync python -m projet12.qualite --schemas analytics
 
 # En cas d'échec d'une tâche : alerte dans Slack (l'URL du webhook vient du .env)
 errors:

@@ -21,12 +21,11 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta
 
-
 from projet12.config import FICHIER_RH, FICHIER_SPORT, connexion_app
 from projet12.generation.ecriture import compter_par_source, inserer_seances
 from projet12.generation.generateur import (
-    Seance,
     TZ,
+    Seance,
     charger_utilisateurs,
     simuler_anomalie,
     simuler_historique_seances,

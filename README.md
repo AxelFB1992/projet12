@@ -287,10 +287,10 @@ uv sync --no-default-groups               # socle seul (image des consommateurs)
 | 2 | `projet12.ingestion` | Lit les deux fichiers Excel, valide leur **structure** (colonnes, identifiants vides ou en double), recharge `raw.salaries` et `raw.sports` en une transaction (un fichier invalide n'écrase jamais des données correctes), puis crée la vue `raw.noms_salaries` ouverte au seul rôle `slack_notifier`. |
 | 3 | `projet12.geo` | Calcule la distance domicile-bureau des salariés au trajet sportif (Google Routes API, mode marche ou vélo). Seuls les trajets nouveaux ou modifiés sont calculés (cache). Écrit `geo.distances_domicile_travail`. |
 | 3/4 | `dbt seed` | Charge les paramètres métier (`parametres.csv`) et les vitesses maximales (`vitesses_max.csv`) dans `analytics`. |
-| 4 | `projet12.qualite --seulement raw geo` | Contrôles Soda des **sources**. Un échec arrête le pipeline. |
+| 4 | `projet12.qualite --schemas raw geo` | Contrôles Soda des **sources**. Un échec arrête le pipeline. `--details` : affichage les détails de l'execution (logs) |
 | 5 | `dbt/models/staging` | Vues de préparation : typage, `trim`, calcul de la durée et de la vitesse, règle `est_valide` (cohérence des dates, distance, vitesse plausible). Les paramètres peuvent être surchargés par `--vars`. |
 | 6 | `dbt/models/marts` | Tables de résultats : éligibilité et coût des avantages par salarié, synthèse des KPI, historique des simulations (une ligne par exécution). |
-| 7 | `projet12.qualite --seulement analytics` | Contrôles Soda des **résultats** lus par Power BI. |
+| 7 | `projet12.qualite --schemas analytics` | Contrôles Soda des **résultats** lus par Power BI. `--details` : affichage les détails de l'execution (logs) |
 
 ### 3.3 Applications en attente d'exécution
 
@@ -300,7 +300,7 @@ uv sync --no-default-groups               # socle seul (image des consommateurs)
 
 **Dans le système d'information**
 - **dbt** : lancé par Kestra ou à la main. 9 modèles, 2 seeds et 23 tests : tests génériques (unicité, non-nullité, valeurs acceptées, relations) et tests métier (montant de la prime, cohérence des coûts et des KPI, aucune activité avant l'embauche). Chaque exécution est tracée dans `monitoring.pipeline_runs` (macro `tracer_execution`).
-- **Soda** : 35 contrôles avec seuils d'avertissement et d'échec (volumétrie, fraîcheur, doublons, valeurs autorisées, intégrité référentielle, cohérence des dates et des vitesses…). Résultats enregistrés dans `monitoring.qualite_checks`.
+- **Soda** : 35 contrôles avec seuils d'avertissement et d'échec (volumétrie, fraîcheur, doublons, valeurs autorisées, intégrité référentielle, cohérence des dates et des vitesses…). Chaque résultat est enregistré dans `monitoring.qualite_checks` (fichier de contrôles, table, résultat `pass` / `warn` / `fail` / `erreur`, valeur mesurée) ; un contrôle impossible à exécuter (colonne inexistante, connexion perdue) produit une ligne `erreur` et arrête le pipeline comme un échec. Option `--details` pour afficher les messages complets de Soda.
 - **Power BI** : rapport en mode Importer, connecté avec le rôle `powerbi_reader` (lecture seule de `analytics` et `monitoring`). Pages : synthèse des coûts, contrôle des déclarations, pratique sportive, simulation de paramètres, monitoring. Voir [docs/powerbi.md](docs/powerbi.md).
 
 > **Tests dbt ou contrôles Soda ?** Les deux exécutent des requêtes SQL sur les données, et
@@ -382,16 +382,18 @@ Le déroulé complet, commande par commande et avec les résultats attendus, est
 | `python -m projet12.ingestion` | Les fichiers Excel sont validés et chargés dans `raw.salaries` et `raw.sports`. La vue des noms des salariés (`raw.noms_salaries`) est créée spécifiquement pour Slack. |
 | `python -m projet12.geo` | Les adresses des salariés au trajet sportif sont envoyées à Google Routes API. Les distances sont mises en cache dans `geo`. |
 | `dbt seed` | Les paramètres et les vitesses maximales sont chargés dans `analytics`. |
-| `python -m projet12.qualite --seulement raw geo` | Soda contrôle les sources. Le code de sortie 1 en cas d'échec arrête Kestra. |
+| `python -m projet12.qualite --schemas raw geo` | Soda contrôle les sources. Le code de sortie 1 en cas d'échec arrête Kestra. `--details` : affichage les détails de l'execution (logs) |
 | `dbt build` | dbt crée les vues de staging, calcule les tables de résultats et exécute ses tests. Une ligne est ajoutée à l'historique des KPI. |
-| `python -m projet12.qualite --seulement analytics` | Soda contrôle les résultats des transformations obtenus par dbt dans le schéma `analytics` (tables lues par Power BI). |
+| `python -m projet12.qualite --schemas analytics` | Soda contrôle les résultats des transformations obtenus par dbt dans le schéma `analytics` (tables lues par Power BI). `--details` : affichage les détails de l'execution (logs) |
 | Kestra **Execute** | Les six instructions précédentes, enchaînées et tracées, avec les paramètres saisis dans le formulaire (qui remplacent les valeurs par défaut du seed `parametres`) et une alerte Slack en cas d'échec. |
 | `python -m projet12.generation simuler_n_seance --n N` | N séances sont insérées, captées, puis chargées dans l'entrepôt **et** annoncées sur Slack, en quelques secondes. |
 | `python -m projet12.generation construire_seance --salarie ----activite --duree-min --distance-km --commentaire N` | Une séance personnalisée est insérée, captée, puis chargée dans l'entrepôt **et** annoncée sur Slack, en quelques secondes. |
 | Power BI **Actualiser** | Le rapport relit `analytics` et `monitoring`. |
 
 Chaque étape écrit une ligne dans `monitoring.pipeline_runs` (étape, début, fin, statut,
-nombre de lignes), ce qui permet de suivre la volumétrie et l'état des exécutions.
+nombre de lignes, message), ce qui permet de suivre la volumétrie et l'état des exécutions.
+Pour les contrôles Soda, le message résume le passage (« 22 OK, 1 avertissement(s),
+1 échec(s), 1 erreur(s) technique(s) ») et le nombre de lignes compte aussi les erreurs.
 
 ---
 

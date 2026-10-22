@@ -32,19 +32,22 @@ CONTROLES = {
 # Le résultats des contrôles qualité vont être dans la table monitoring.qualite_checks, d'où la nécessité de la créer
 DDL = """
 CREATE TABLE IF NOT EXISTS monitoring.qualite_checks (
-    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    execution_id  UUID        NOT NULL,   -- regroupe les contrôles d'une même exécution
-    verifie_le    TIMESTAMPTZ NOT NULL,
-    data_source   TEXT        NOT NULL,   -- dwh_raw, dwh_geo, dwh_analytics
+    id             BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    execution_id   UUID        NOT NULL,   -- regroupe les contrôles d'une même exécution
+    verifie_le     TIMESTAMPTZ NOT NULL,
+    data_source    TEXT        NOT NULL,   -- dwh_raw, dwh_geo, dwh_analytics
+    fichier_soda   TEXT,                   -- fichier de contrôles : raw.yml, geo.yml...
     table_verifiee TEXT,
-    controle      TEXT        NOT NULL,   -- nom lisible du contrôle
-    resultat      TEXT        NOT NULL,   -- pass | warn | fail | erreur
-    valeur        NUMERIC                 -- valeur mesurée (nb de lignes, %...)
-)
+    controle       TEXT        NOT NULL,   -- nom lisible du contrôle
+    resultat       TEXT        NOT NULL,   -- pass | warn | fail | erreur
+    valeur         NUMERIC                 -- valeur mesurée (nb de lignes, %...)
+);
+ALTER TABLE monitoring.qualite_checks ADD COLUMN IF NOT EXISTS fichier_soda TEXT;
 """
 
 # Classe permettant de stocker le résultat d'un contrôle Soda :
 # -data_source : De quelle base proviennent les données analysées.
+# -fichier soda : Le fichier dans lequel 
 # -table_verifiee : la base de la table.
 # -resultat : pass|warn|fail -> le test est passé| le test est passé mais il y a un warning| fail le test n'est pas passé.
 #       -> Ces différents "niveaux de résultat" sont prévus dans les tests présents dans le fichier soda/checks/"{}".yml
@@ -52,6 +55,7 @@ CREATE TABLE IF NOT EXISTS monitoring.qualite_checks (
 @dataclass(frozen=True)
 class ResultatControle:
     data_source: str
+    fichier_soda: str
     table_verifiee: str | None
     controle: str
     resultat: str
@@ -64,11 +68,12 @@ def _valeur(check: dict) -> float | None:
     return float(valeur) if isinstance(valeur, int | float) else None
 
 # Fonction qui va lire les fichiers de côntrôle "Soda/checks/{}.yml", executer le côntole grâce à un objet de type soda.scan et retourner un résutlat via un objet de type ResultatControle
-def lancer_scan(fichier: str, data_source: str) -> tuple[list[ResultatControle], list[str]]:
+# Auparavant on avait besoin de retourner une liste d'erreurs séparé, mais on a réglé ce problème en intégrant tout dans resultats
+def lancer_scan(fichier: str, data_source: str) -> list[ResultatControle]:
     """
     Cette fonction effectues les tâches suivantes : 
     -Exécute un fichier de contrôles (fichier "Soda/checks/{}.yml")
-    -Renvoie les résultats et les erreurs techniques éventuelles (connexion impossible, contrôle mal écrit...).
+    -Renvoie les résultats (dont les erreurs) techniques éventuelles (connexion impossible, contrôle mal écrit...).
     -Stocker ces résutlats/erreurs dans un objet de type ResultatControle (juste au dessus)
     """
     scan = Scan()
@@ -87,6 +92,7 @@ def lancer_scan(fichier: str, data_source: str) -> tuple[list[ResultatControle],
         ResultatControle(
             # Le data source est celui que l'on a passé en paramètre du scan, reçu dans la signature de lancer_scan
             data_source=data_source,
+            fichier_soda=f"{fichier}.yml",
             table_verifiee=check.get("table"),
             controle=check.get("name") or check.get("definition", "?"),
             resultat=check.get("outcome") or "erreur",
@@ -96,18 +102,38 @@ def lancer_scan(fichier: str, data_source: str) -> tuple[list[ResultatControle],
         # Permet de parcourir tous les tests réalisés réalisés et prévu par le fichier "Soda/checks/{}.yml"
         for check in scan.get_scan_results().get("checks", [])
     ]
-    # On récupère également les erreurs que l'on palce à part entière
-    erreurs = [log_.message for log_ in scan.get_error_logs()] if scan.has_error_logs() else []
-    return resultats, erreurs
+    
+    # On récupèrait auparavant les erreurs que l'on placait à part entière.
+    # Désormais les erreus sont intégrés à la fin de la liste de résultats :
+    
+    # Un contrôle en panne n'apparaît pas dans les résultats, seulement dans les
+    # logs d'erreur (2 messages par panne) : on garde un message par contrôle,
+    # ou tous les messages s'il s'agit d'une erreur générale (connexion, YAML...).
+    if scan.has_error_logs():
+        messages = [log_.message for log_ in scan.get_error_logs()]
+        pannes = [m for m in messages if "were not computed for check" in m] or messages
+        resultats += [
+            ResultatControle(
+                data_source=data_source,
+                fichier_soda=f"{fichier}.yml",
+                table_verifiee=None,
+                controle=f"Erreur technique : {m[:200]}",
+                resultat="erreur",
+                valeur=None,
+            )
+            for m in pannes
+        ]
+    return resultats
 
 # Cette méthode permet de stocker les résultat des contrôles réalisées par la méthode précedente dans les tables prévues à cette effet :
 # monitoring.qualite_checks et monitoring.pipeline_runs
-def enregistrer(conn: psycopg.Connection, resultats: list[ResultatControle],
-                erreurs: list[str], debut: datetime, fin: datetime) -> str:
+#def enregistrer(conn: psycopg.Connection, resultats: list[ResultatControle],
+#               erreurs: list[str], debut: datetime, fin: datetime) -> str:
+def enregistrer(conn: psycopg.Connection, resultats: list[ResultatControle],debut: datetime, fin: datetime) -> str:
     """
     Cette fonction réalise les tâches suivantes : 
     -Compte les statuts des tests réalisés 
-    -Ecrit les résultats des tests du contrôle dans la table monitoring.qualite_check
+    -Ecrit les résultats (dont erreurs) des tests du contrôle dans la table monitoring.qualite_check
     -Ecrit la ligne de synthèse du contrôle réalisé, avec les status recensés plus tôt
     """
     # On génère un id d'execution permettant de rassembler tous les tests fait lors d'un contrôle
@@ -115,11 +141,13 @@ def enregistrer(conn: psycopg.Connection, resultats: list[ResultatControle],
     # On calcule le nombre de tests au statut "pass", "warn", "fail" ou "erreur" que l'on stocke dans un grand variable nb
     nb = {r: sum(1 for c in resultats if c.resultat == r) for r in ("pass", "warn", "fail", "erreur")}
     # le statut du contrôle sera passé en échec si jamais il y a au moins une erreur ou un fail
-    statut = "echec" if nb["fail"] or nb["erreur"] or erreurs else "succes"
+    #statut = "echec" if nb["fail"] or nb["erreur"] or erreurs else "succes"
+    statut = "echec" if nb["fail"] or nb["erreur"] else "succes"
     # On préparer le message que l'on va passer en paramètre de l'insertion à la table monitoring.pipeline_run qui recense le statut du contrôle global et non du tests
+    #message = (f"{nb['pass']} OK, {nb['warn']} avertissement(s), {nb['fail']} échec(s)"
+    #           + (f", {len(erreurs)} erreur(s) technique(s)" if erreurs else ""))
     message = (f"{nb['pass']} OK, {nb['warn']} avertissement(s), {nb['fail']} échec(s)"
-               + (f", {len(erreurs)} erreur(s) technique(s)" if erreurs else ""))
-
+                + (f", {nb['erreur']} erreur(s) technique(s)" if nb["erreur"] else ""))
     # On écrit les résultats en utilisant la variable 'conn' (en paramètre de la méthode) qui recense tous les paramètres de connection à la base dwh
     with conn.cursor() as cur:
         # On commence par créer monitoring.qualite_checks si elle n'existe pas
@@ -127,9 +155,9 @@ def enregistrer(conn: psycopg.Connection, resultats: list[ResultatControle],
         # On écrit tous les résultats des tests qui sont stockés dans resultats en les parcourant un à un avec leurs valeurs
         cur.executemany(
             """INSERT INTO monitoring.qualite_checks
-               (execution_id, verifie_le, data_source, table_verifiee, controle, resultat, valeur)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-            [(execution_id, fin, r.data_source, r.table_verifiee, r.controle, r.resultat, r.valeur)
+               (execution_id, verifie_le, data_source, fichier_soda, table_verifiee, controle, resultat, valeur)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            [(execution_id, fin, r.data_source, r.fichier_soda, r.table_verifiee, r.controle, r.resultat, r.valeur)
              for r in resultats],
         )
         # On écrit le résultat global du "run" du contrôle courant dans la table monitoring.pipeline_runs, avec le statut global calculé ci-dessous (statut)

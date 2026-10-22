@@ -359,10 +359,22 @@ Execute) ou `dbt build --vars`. Chaque exécution ajoute une ligne. »
 
 **Table** `monitoring_pipeline_runs` — journal des exécutions
 
-Colonnes : `etape`, `debut`, `fin`, `statut`, `nb_lignes`, `message`.
-- `debut` et `fin` sans hiérarchie de dates ; `nb_lignes` en **Ne pas résumer**.
-- Tri : clic sur l'en-tête `debut` (le plus récent en premier).
-- Format → Éléments de cellule → couleur d'arrière-plan sur `statut` : rouge pour `echec`.
+**Table** `monitoring_qualite_checks` — contrôles qualité en anomalie
+
+Colonnes : `verifie_le`, `fichier_soda`, `table_verifiee`, `controle`, `resultat`, `valeur`.
+- `verifie_le` sans hiérarchie de dates ; `valeur` en **Ne pas résumer**.
+- Filtre du visuel (volet Filtres → Filtres de ce visuel → `resultat`, Filtrage de base) :
+  cocher **warn**, **fail** et **erreur**, laisser **pass** décoché.
+- Tri : clic sur l'en-tête `verifie_le`.
+- Format → Éléments de cellule → couleur sur `resultat` : orange pour warn, rouge pour fail,
+  violet (ou gris foncé) pour erreur.
+- Une ligne `erreur` correspond à un contrôle **impossible à exécuter** (colonne inexistante,
+  connexion perdue) : `table_verifiee` est vide et `controle` commence par « Erreur technique ».
+- `valeur` dépend du contrôle : nombre de lignes, pourcentage, ou **millisecondes** pour la
+  fraîcheur (diviser par 3 600 000 pour obtenir des heures).
+
+> Si tous les contrôles sont « pass », la table est vide (base propre). Pour la démo :
+> `generation simuler_n_seance --n 10 --taux-anomalies 0.5`, puis `python -m projet12.qualite`, puis Actualiser.
 
 **Histogramme groupé** — volumétrie traitée par étape
 

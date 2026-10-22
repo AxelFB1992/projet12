@@ -67,8 +67,8 @@ chargées » échoue et le pipeline s'arrête).
 uv run --env-file .env python -m projet12.generation generer_historique --graine 42
 ```
 
-→ T2 charge ~7 900 activités. T3 ne publie rien : l'historique n'est jamais annoncé
-sur Slack.
+→ T2 charge ~8 000 activités (le nombre varie selon le jour de génération). T3 ne publie
+rien : l'historique n'est jamais annoncé sur Slack.
 
 ---
 
@@ -87,14 +87,17 @@ uv run --env-file .env python -m projet12.geo
 cd dbt && uv run --env-file ../.env dbt seed --profiles-dir . && cd ..
 
 # 4. Contrôles qualité des SOURCES (un échec => on ne lance pas les calculs)
-uv run --env-file .env python -m projet12.qualite --seulement raw geo
+uv run --env-file .env python -m projet12.qualite --schemas raw geo
+--details : affichage les détails de l'execution (logs)
 
 # 5. Calculs et tests dbt
 cd dbt && uv run --env-file ../.env dbt build --profiles-dir . && cd ..
 
 # 6. Contrôles qualité des RÉSULTATS (tables lues par Power BI)
-uv run --env-file .env python -m projet12.qualite --seulement analytics
+uv run --env-file .env python -m projet12.qualite --schemas analytics
+--details : affichage les détails de l'execution (logs)
 ```
+> Ajouter `--details` pour afficher les messages complets de Soda (requêtes SQL, erreurs).
 
 Résultats :
 
@@ -158,6 +161,15 @@ puis 3 messages avec les vrais noms. T2 : 3 lignes chargées.
 Variante « au fil de l'eau » pendant qu'on parle : `simuler_n_seance --n 1 --intervalle 10`
 (Ctrl+C pour arrêter la génération).
 
+Séance saisie à la main (ID salarié à prendre dans le fichier RH, activité écrite comme dans
+`profils.py`) :
+
+```bash
+uv run --env-file .env python -m projet12.generation construire_seance --salarie <ID> --activite "Course à pied" --duree-min 42 --distance-km 8.5 --commentaire "Sortie du midi"
+```
+
+→ T2 : 1 ligne chargée. T3 : un message Slack.
+
 ---
 
 ## 4. Changement de paramètre : relancer le calcul
@@ -206,11 +218,21 @@ uv run --env-file .env python -m projet12.generation simuler_n_seance --n 100 --
 - **Kestra :** **Execute** → la tâche `qualite_sources` **échoue**, les calculs ne sont
   pas lancés (on ne publie pas de résultats faux), une **alerte arrive dans Slack**.
 
+**Erreur technique** (contrôle impossible à exécuter) : remplacer temporairement
+`id_salarie` par `id_salarieX` dans un contrôle de `soda/checks/raw.yml`, puis :
+
+```bash
+uv run --env-file .env python -m projet12.qualite --schemas raw geo
+```
+
+→ 💥 « Erreur technique : … », statut `echec`, une ligne `erreur` dans
+`monitoring.qualite_checks`. Remettre `id_salarie` ensuite.
+
 Historique des contrôles :
 
 ```bash
 docker exec -it p12-postgres psql -U etl -d dwh -c "
-select verifie_le, table_verifiee, controle, resultat, valeur
+select verifie_le, fichier_soda, table_verifiee, controle, resultat, valeur
 from monitoring.qualite_checks where resultat <> 'pass' order by verifie_le desc limit 10;"
 ```
 
