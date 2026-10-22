@@ -40,7 +40,6 @@ docker compose up -d --build postgres redpanda redpanda-console debezium chargem
 # A partir de la deuxième execution sur la machine locale (les images sont déjà téléchargées)
 docker compose up -d postgres redpanda redpanda-console debezium chargement slack
 docker compose ps -a                   # postgres et redpanda : (healthy), redpanda-init : Exited (0), les autres : Up
->>>>>>> 8074e50 (49e commit - Ajout du service Redpanda-init dans le docker-compose.yml afin de créer le topic avant l'execution du service de génération : Ainsi les premières activités ajoutées peuvent s'afficher aussi bien dans le consommateurs de chargement que dans le consommateur slack (si il s'agit d'activités live) - Modification du Readme.md en conséquences - Modifications de docs/demo.md pour intégrer les commandes de créations d'activités personnalisées, les alternatives au docker compose up -d build (sans le build), ajout de commandes de visualisation psql relatives aux différentes étapes de la démo et enfin commentaires sur l'ajout de redpanda-init)
 sleep 15
 docker logs p12-postgres 2>&1 | grep -iE "error|fatal|unbound|not found|initialisation"
 # attendu : la ligne ✅ (et éventuellement "sh: locale: not found", sans importance)
