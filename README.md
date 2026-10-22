@@ -210,7 +210,7 @@ Base `dwh` (entrepôt de données) :
 | `raw` | données brutes : `activites`, `salaries`, `sports` + vue `noms_salaries` | chargement, ingestion |
 | `geo` | `distances_domicile_travail` | geo |
 | `staging` | vues qui préparent les données brutes pour les calculs : typage, suppression des espaces, correction des libellés (« Runing »), indicateurs dérivés (âge, durée, vitesse, trajet sportif ou non) et règle de validité des activités (`est_valide`) ; paramètres en vigueur (`stg_parametres`) | dbt |
-| `analytics` | `activites`, `avantages_salaries`, `kpi_synthese`, `historique_kpi` + seeds | dbt |
+| `analytics` | `activites`, `avantages_salaries`, `kpi_synthese`, `historique_kpi` + seeds : `parametres`, `vitesses_max` | dbt |
 | `monitoring` | `pipeline_runs`, `qualite_checks` | toutes les étapes |
 
 ### 2.3 Environnement virtuel et dépendances
@@ -435,48 +435,80 @@ Redpanda, Kestra lancé seulement pour la démo batch, et une image des consomma
 ### 5.2 Choix discutables et limites assumées
 
 **Architecture**
-- **Une seule instance PostgreSQL** pour la source (`app`) et l'entrepôt (`dwh`) : en réalité, deux serveurs distincts. La séparation est faite au niveau des bases, des rôles et des droits.
-- **Redpanda en un seul exemplaire** : s'il s'arrête, le chargement et les messages Slack attendent son redémarrage (aucune séance n'est perdue, Debezium reprend où il en était). Format JSON sans contrôle de schéma : une modification de la table source pourrait casser les consommateurs.
+- **Une seule instance PostgreSQL** pour la source (`app`) et l'entrepôt (`dwh`) : en réalité, ces bases appartiendraient à deux systèmes d'information distincts (serveurs, réseaux et équipes différents), ce qui éviterait aussi que les requêtes analytiques ralentissent l'application. Ici, la séparation est seulement logique : bases, rôles et droits distincts.
+- **Redpanda en un seul exemplaire** : s'il s'arrête, le chargement et les messages Slack attendent son redémarrage (aucune séance n'est perdue, Debezium reprend où il en était).
+- **Messages JSON sans schéma** : Debezium peut décrire la structure de chaque message, mais cette option est désactivée (`schemas.enable=false`) pour des messages plus simples. Personne ne vérifie donc que la structure reste la même : une modification de la table source pourrait casser les consommateurs.
 - **Kestra exécute les tâches dans son propre conteneur** : simple, mais Kestra et le projet sont couplés.
+- **Docker Compose sur une seule machine** : adapté au poste local, sans répartition de charge ni bascule sur une autre machine.
+- **Source Strava simulée** : les séances sont générées par `projet12.generation`, pas lues depuis Strava.
 
 **Fiabilité et disponibilité**
 - At-least-once : un arrêt brutal entre l'envoi et la validation peut produire **un message Slack en double**.
 - Après une longue coupure, Slack publie d'un coup les séances en attente (dans la limite de la durée de rétention de Redpanda).
 - Pas de *healthcheck* applicatif sur les consommateurs : Docker les relance s'ils plantent, pas s'ils sont bloqués.
+- Le batch se lance sans vérifier que le chargement a fini de traiter les messages en attente : les calculs pourraient porter sur des activités incomplètes.
 
 **Cohérence et règles métier (hypothèses du POC)**
 - L'identifiant d'activité Strava est supposé égal à l'identifiant salarié.
-- Le trajet sportif est validé **sur la distance déclarée**, pas sur des trajets réellement enregistrés.
-- Une distance n'est recalculée qu'en cas de changement d'adresse ou de mode, ou sur demande (`recalculer_distances`).
+- Le trajet sportif est validé sur une distance **calculée** à partir de l'adresse et du mode de déplacement déclarés : on vérifie que le trajet est faisable, pas qu'il est réellement fait.
+- Une distance n'est recalculée qu'en cas de changement d'adresse ou de mode, ou sur demande (`recalculer_distances`) : compromis entre le coût de l'API et la fraîcheur ; un itinéraire modifié par Google n'est pris en compte qu'au recalcul (le contrôle Soda de fraîcheur sert de garde-fou).
 - Seuils Soda fixés par nous : ils seraient à valider avec le métier.
+- L'historique des KPI ajoute une ligne à chaque exécution de dbt, même sans changement de paramètre.
 
 **Sécurité et confidentialité**
-- Secrets transmis en variables d'environnement (visibles avec `docker inspect` sur la machine).
-- Connexions PostgreSQL sans SSL : acceptable en local uniquement.
+- Secrets dans un fichier `.env` non versionné, transmis en variables d'environnement : protégés de git, mais en clair sur le disque et visibles avec `docker inspect` par quiconque a accès à Docker sur la machine.
+- Connexions PostgreSQL sans chiffrement (SSL/TLS) : acceptable en local, où tout passe par le réseau interne de Docker.
 - Publication du nom des salariés sur Slack : nécessiterait leur consentement.
+- Rapport Power BI sans contrôle d'accès par ligne : chaque lecteur voit toutes les BU.
 
 **Automatisation et industrialisation**
-- Tests unitaires seulement (29), sans test de bout en bout automatisé ni intégration continue.
+- Tests unitaires seulement (30), sans test de bout en bout automatisé.
+- Pas d'intégration continue : les tests et Ruff sont lancés à la main.
 - Rapport Power BI actualisé à la main.
-- L'historique des KPI ajoute une ligne à chaque exécution de dbt, même sans changement de paramètre.
+- L'alerte Slack de Kestra signale l'échec du pipeline sans préciser la tâche en cause.
 
 **Conventions et bonnes pratiques**
 - La vue des noms est rangée dans `raw` : petite entorse à la convention « raw = données brutes », assumée pour éviter un schéma supplémentaire.
+- Monitoring hétérogène : `chargement` et `geo` ne renseignent pas `message` et ne tracent pas leurs échecs dans `pipeline_runs`.
 
 ### 5.3 Perspectives d'amélioration et passage à l'échelle
 
-| Domaine | Amélioration |
-|---|---|
-| Source | Connexion à la vraie API Strava (OAuth) et table de correspondance compte Strava ↔ salarié |
-| Infrastructure | Serveurs séparés pour la source et l'entrepôt ; déploiement sur Kubernetes |
-| Streaming | Cluster Redpanda (3 nœuds, plusieurs partitions), *Schema Registry* (Avro) pour faire évoluer les messages |
-| Orchestration | Exécution de chaque tâche Kestra dans sa propre image ; contrôle de l'état et du retard des consommateurs avant le batch ; détail de la tâche en échec dans l'alerte Slack |
-| Supervision | *Healthcheck* des consommateurs (fichier de pouls), tableaux de bord de supervision |
-| Sécurité | Coffre-fort de secrets (Vault, Docker secrets), connexion SSL au serveur PostgreSQL, contrôle d'accès par ligne (RLS) dans Power BI |
-| Confidentialité | Demander aux salariés leur avis sur la publication de leurs activités sportives, ainsi que de leurs nom et prénom, sur un canal public |
-| Restitution | Publication sur Power BI Service, passerelle de données et actualisation planifiée après le pipeline |
-| Qualité du code | Intégration continue (ruff, pytest, `dbt parse` à chaque push), tests de bout en bout |
-| Règles métier | Validation des trajets réels, seuils Soda calibrés avec le métier, cohérence des noms de colonnes (`type_activite`) |
+**Architecture**
+- **Serveurs séparés** pour la source et l'entrepôt, dans deux systèmes d'information distincts.
+- **Cluster Redpanda** de 3 brokers avec un facteur de réplication de 3 (chaque message copié sur 3 nœuds), et plusieurs partitions pour lire le topic en parallèle.
+- **Registre de schémas** (*Schema Registry*, intégré à Redpanda) au format Avro : Debezium y publie la structure des messages, le registre refuse tout changement incompatible, et les consommateurs savent exactement ce qu'ils reçoivent.
+- **Chaque tâche Kestra dans sa propre image** (task runner Docker ou Kubernetes), pour découpler Kestra du projet.
+- **Déploiement sur Kubernetes**, pour répartir la charge sur plusieurs machines et relancer automatiquement les services.
+- **Connexion à la vraie API Strava** (OAuth, webhooks), qui écrirait dans `app.public.activites` : Debezium et le reste de la chaîne restent inchangés.
+
+**Fiabilité et disponibilité**
+- **Dédoublonnage des messages Slack** : mémoriser les séances déjà annoncées pour ne jamais publier deux fois la même.
+- **Ignorer les séances trop anciennes** après une longue coupure (par exemple plus de 24 h), au lieu de tout publier d'un coup.
+- **Healthcheck des consommateurs** (fichier de « pouls » mis à jour à chaque boucle), pour que Docker relance aussi un consommateur bloqué.
+- **Vérifier le retard du chargement avant le batch** (messages en attente dans Redpanda), et attendre ou alerter s'il n'est pas à jour.
+
+**Cohérence et règles métier**
+- **Table de correspondance** entre compte Strava et identifiant salarié.
+- **Validation des trajets réels** : activités Strava marquées « domicile-travail » les jours ouvrés, avec un départ proche du domicile et une arrivée proche du bureau.
+- **Recalcul périodique des distances** (par exemple tous les 6 mois), en plus des changements d'adresse ou de mode.
+- **Seuils Soda calibrés** avec le métier.
+- **Historique des KPI** alimenté seulement quand les paramètres ou les données changent.
+
+**Sécurité et confidentialité**
+- **Coffre-fort de secrets** : Docker secrets, secrets Kestra, ou HashiCorp Vault / AWS Secrets Manager.
+- **Connexions PostgreSQL chiffrées** (`sslmode=verify-full`).
+- **Recueillir le consentement des salariés** avant de publier leurs activités, leur nom et leur prénom sur un canal public.
+- **Contrôle d'accès par ligne** (RLS) dans Power BI, par exemple pour qu'un manager ne voie que sa BU.
+
+**Automatisation et industrialisation**
+- **Tests de bout en bout** : la vraie chaîne lancée sur de fausses données (salariés de test, faux serveur Slack, distances fixes), avec vérification du résultat final dans `analytics` et des messages reçus.
+- **Intégration continue** : Ruff, pytest et `dbt parse` lancés automatiquement à chaque `git push` (GitHub Actions, par exemple).
+- **Publication sur Power BI Service**, avec une passerelle de données et une actualisation planifiée juste après le pipeline.
+- **Détail de la tâche en échec** dans l'alerte Slack de Kestra.
+
+**Conventions et bonnes pratiques**
+- **Schéma dédié à la vue des noms** (par exemple `annuaire`), pour que `raw` ne contienne que des données brutes.
+- **Monitoring homogène** : toutes les étapes renseignent `message` et tracent aussi leurs échecs dans `pipeline_runs`.
 
 ---
 
@@ -499,14 +531,12 @@ exécutions et des contrôles qualité (`monitoring`).
 
 ### Limites principales
 
-- une infrastructure **mono-instance**, sans haute disponibilité ;
-- des **hypothèses métier** simplificatrices (correspondance des identifiants, validation des trajets par la distance) ;
-- une sécurité adaptée au **poste local** (secrets en variables d'environnement, pas de SSL).
+- Infrastructure mono-instance, sans haute disponibilité (Docker Compose sur une seule machine, un seul broker Redpanda, une seule instance PostgreSQL) ;
+- Hypothèses métier simplificatrices (correspondance entre identifiants, validation des trajets par une distance calculée, paramètres et seuils fixés sans validation métier) ;
+- Sécurité adaptée au poste local (secrets en variables d'environnement, pas de SSL ni de contrôle d'accès par ligne).
 
 ### Perspectives
 
-En cas de passage en production :
-
-- **séparer et répliquer l'infrastructure** : serveurs distincts pour la source et l'entrepôt, cluster Redpanda, déploiement sur Kubernetes ;
-- **brancher la vraie source Strava** (OAuth, correspondance compte Strava ↔ salarié) et valider les trajets réellement effectués ;
-- **renforcer la sécurité** : coffre-fort de secrets, connexions SSL, contrôle d'accès par ligne (RLS) dans Power BI.
+- **Séparer et répliquer l'infrastructure** : déploiement sur Kubernetes, cluster de brokers Redpanda, serveurs distincts pour la source et l'entrepôt de données ;
+- **Fiabiliser les données et les règles métier** : brancher la vraie source Strava avec une correspondance compte Strava ↔ salarié, valider les trajets réellement effectués, faire valider les paramètres et les seuils par le métier ;
+- **Renforcer la sécurité** : coffre-fort de secrets, connexions SSL, contrôle d'accès par ligne (RLS) dans Power BI.
