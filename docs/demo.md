@@ -33,7 +33,12 @@ Kestra n'est **pas** démarré ici : il n'est pas nécessaire au temps réel, et
 économise de la RAM pendant la démo manuelle (il est lancé en 2B).
 
 ```bash
-docker compose down -v                 # efface TOUTES les données (bases, topics, Kestra)
+# efface TOUTES les données (bases, topics, Kestra)
+docker compose down -v
+# OU 
+# Supprime les conteneurs et les volumes des conteneurs sauf celui de Kestra, pour éviter de re-installer l'environnement kestra-uv
+docker compose down 
+docker volume rm projet12_pgdata projet12_redpanda_data projet12_debezium_data
 # A la toute première execution sur la machine locale
 docker compose up -d --build postgres redpanda redpanda-console debezium chargement slack
 # OU
