@@ -264,7 +264,7 @@ Comparer avant / après :
 
 ```bash
 docker exec -it p12-postgres psql -U etl -d dwh -c "
-select calcule_le, taux_prime, seuil_velo_km, nb_eligibles_prime, cout_prime, cout_total
+select calcule_le, taux_prime, seuil_velo_km, nb_eligibles_prime, nb_eligibles_prime, cout_prime, cout_bien_etre, cout_total
 from analytics.historique_kpi order by calcule_le;"
 ```
 
